@@ -35,6 +35,7 @@ pythonVersion = "3.13"
 pythonPlatform = "Linux"
 reportMissingImports = true
 reportUnusedImport = true
+extraPaths = ["bases", "components"]
 
 [dependency-groups]
 dev = [

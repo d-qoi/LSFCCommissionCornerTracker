@@ -15,16 +15,15 @@ This will do a few things.
 
 * Event Management Page
   Will let us set Open and Close times for the day.
+  Will let us name the event
+  Will let us set default seat time
+  Will let us set the default timeout period
   Will list the current artists, with time remaining for each seat
   Will maintain the list of previous artists, as well as highlight any who are on a 'timeout' period
   Will allow us to add an artist
   Will allow us to remove an artist
   Will create a QR code for the artist to scan so they can get to the Artist's Page
 
-* Event Setup Page
-  Will let us name the event
-  Will let us set default seat time
-  Will let us set the default timeout period
 
 * Artist's Page
   Will let an artist who is in a seat add links to their own website.

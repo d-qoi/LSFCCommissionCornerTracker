@@ -1,4 +1,4 @@
-from cctracker.api_event_main import core
+from cctracker.event import core
 
 
 def test_sample():

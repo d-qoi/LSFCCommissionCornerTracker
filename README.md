@@ -31,3 +31,27 @@ This will do a few things.
   Will let an artist who is in a seat update the number of commissions they can take.
   Will show how much time they have left.
   Will let them abandon their seats
+
+
+## Interactions
+Account is needed to create events, and as something to save artist info to.
+
+An event is created
+Open/Close schedule is set
+Number of seats available are set.
+
+Event organizer can choose a seat to add an artist to.
+A link is generated with a unique ID.
+
+Artist follows link, and will adopt UUID as an identity for the event, it is now a token.
+They can set a 'slug' for the event, which the event page will link to. Slug is tied to the UUID for the event.
+They can use the UUID as auth to edit their profiles domain.com/$eventname/artist/$slug
+
+If artist already has a UUID, they can set themselves to a seat when following the link from the event host again.
+
+The server will save the artist info for the duration of an event.
+
+If the artist creates an account, they can save information they set for the event profile to their account.
+If they have an account, they can load info from their account to the event profile
+
+Event host can also edit artist event profile

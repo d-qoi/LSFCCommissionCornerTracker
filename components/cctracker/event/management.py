@@ -1,17 +1,22 @@
 from typing import Annotated, Literal
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Security
+from fastapi.security import OAuth2AuthorizationCodeBearer, SecurityScopes
 from pydantic import BaseModel, Field
 
-from cctracker.event.core import EventManagementDetails, Spot, SpotList
+from cctracker.event.core import EventManagementDetails, Spot, SpotList, oauth2_scheme
 
 router = APIRouter()
 
 
-@router.put("/{event}")
+@router.put("/")
 async def create_event(
-    event: str, details: EventManagementDetails
+    details: EventManagementDetails,
+    token: Annotated[
+        OAuth2AuthorizationCodeBearer,
+        Security(oauth2_scheme, scopes=["event:create", "event:admin"]),
+    ],
+    security_scopes: SecurityScopes,
 ) -> EventManagementDetails:
-    details.slug = event
     return details
 
 

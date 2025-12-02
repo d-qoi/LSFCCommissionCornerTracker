@@ -2,6 +2,20 @@ from datetime import timedelta
 from enum import StrEnum, auto
 from pydantic import AwareDatetime, BaseModel
 
+from fastapi.security import OAuth2AuthorizationCodeBearer
+
+scopes: dict[str, str] = {
+    "event:create": "Create an event, and delete created event",
+    "event:admin": "Create events, and delete any create events",
+    "user:me": "Access User Profile, only theirs",
+    "user:admin": "Access any user profile",
+}
+
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    "authorizationUrl", "tokenURL", scopes=scopes
+)
+
+
 class EventManagementDetails(BaseModel):
     name: str | None = None
     slug: str | None = None
@@ -19,7 +33,6 @@ class Spot(BaseModel):
 
 class SpotList(BaseModel):
     spotss: list[Spot] = []
-
 
 
 class EventStatus(StrEnum):

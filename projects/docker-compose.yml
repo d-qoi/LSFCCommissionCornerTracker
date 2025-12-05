@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:18.1-trixie
+    container_name: cctracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres        # change as needed
+      POSTGRES_USER: postgres      # change as needed
+      POSTGRES_PASSWORD: postgres  # change as needed
+    volumes:
+      - ./docker_data/db/data:/var/lib/postgresql
+      - ./docker_data/db/initdb.d:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7
+    container_name: cctracker-keycloak
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      # initial admin user for Keycloak console
+      KEYCLOAK_ADMIN: admin           # change!
+      KEYCLOAK_ADMIN_PASSWORD: admin  # change!
+
+      # DB config: Keycloak will use the same Postgres instance
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: keycloak_user
+      KC_BOOTSTRAP_ADMIN_PASSWORD: keycloakpass
+
+      # relax hostname stuff for local/dev use
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    command:
+      - start-dev
+    ports:
+      - "8080:8080"   # Keycloak admin UI on localhost:8080
+    networks:
+      - backend
+
+  valkey:
+    image: valkey/valkey:9.0.0-alpine
+    container_name: cctracker-valkey
+    restart: unless-stopped
+    ports:
+      - "6379:6379"   # Valkey/Redis port
+    volumes:
+      - ./docker_data/valkey/data:/data
+    networks:
+      - backend
+
+  pgweb:
+    container_name: pgweb
+    restart: always
+    image: sosedoff/pgweb
+    ports: 
+      - "8081:8081" 
+    links: 
+      - db:db  # my database container is called postgres, not db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+    depends_on:
+      - db
+    networks:
+      - backend
+
+
+networks:
+  backend:

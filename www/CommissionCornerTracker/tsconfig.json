@@ -3,18 +3,14 @@
     // General
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
-    "target": "ESNext",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
 
     // Modules
-    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
 
     // Type Checking & Safety
-    "strict": true,
-    "types": ["vite/client"]
+    "skipLibCheck": true,
+    "strict": true
   }
 }

@@ -95,12 +95,13 @@ export const fetchAllEvents = async (): Promise<EventsData> => {
   return new Promise((resolve) => {
     setTimeout(() => {
       resolve(MockEventData);
-    }, 5000);
+    }, 500);
   });
 };
 
 export const fetchEvent = async (eventId: string): Promise<EventDetails> => {
-  return new Promise((resolve) => {
+  console.log("fetching event", eventId);
+  return new Promise((resolve, reject) => {
     setTimeout(() => {
       for (const [key, value] of Object.entries(MockEventData)) {
         const event = value.find(
@@ -108,10 +109,11 @@ export const fetchEvent = async (eventId: string): Promise<EventDetails> => {
         );
         if (event) {
           resolve(event);
+          return; // Exit early when found
         }
       }
-      throw new Error("Event Not Found");
-    }, 5000);
+      reject(new Error("Event Not Found")); // Use reject instead of throw
+    }, 500);
   });
 };
 

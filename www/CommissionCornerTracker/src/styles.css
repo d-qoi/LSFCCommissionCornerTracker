@@ -92,12 +92,17 @@ body {
   }
 }
 
+.nav-link {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  box-sizing: border-box;
+  transition: --background-color 0.2s ease;
+}
+
 /* Navigation link hover */
 .nav-link:hover {
   background-color: var(--accent-hover);
-  border-radius: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  margin: -0.25rem -0.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -133,4 +138,15 @@ body {
 
 .artist-avatar-inactive {
   border-color: var(--inactive-border-color);
+}
+
+/* Seat selection hover */
+.seat-item:hover {
+  background-color: var(--accent-hover);
+}
+
+@media (prefers-color-scheme: dark) {
+  .seat-item:hover {
+    background-color: var(--accent-hover-dark);
+  }
 }

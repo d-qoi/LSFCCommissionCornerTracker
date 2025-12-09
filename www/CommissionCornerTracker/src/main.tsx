@@ -1,9 +1,9 @@
 import { render } from 'solid-js/web';
-import 'solid-devtools';
-import { attachDevtoolsOverlay } from '@solid-devtools/overlay';
 import { RouterProvider, createRouter } from '@tanstack/solid-router';
 import { routeTree } from './routeTree.gen';
 import './styles.css';
+import 'solid-devtools';
+import { attachDevtoolsOverlay } from '@solid-devtools/overlay';
 
 // Set up a Router instance
 const router = createRouter({

@@ -11,6 +11,12 @@
 
     // Type Checking & Safety
     "skipLibCheck": true,
-    "strict": true
+    "strict": true,
+
+    // Paths
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   }
 }

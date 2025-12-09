@@ -8,6 +8,7 @@ export interface Artist {
   commissionsOpen: boolean;
   commissionsRemaining: number | null;
   active: boolean | null;
+  timeRemaining: number | null;
 }
 
 export interface ArtistSummary {
@@ -31,6 +32,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 3,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Crimson Paws",
@@ -42,6 +44,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: null,
     active: true,
+    timeRemaining: null,
   },
   {
     name: "Crimson 2",
@@ -53,6 +56,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: null,
     active: false,
+    timeRemaining: null,
   },
 
   // Event 2 Artists
@@ -66,6 +70,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: false,
     commissionsRemaining: 0,
     active: true,
+    timeRemaining: 1000,
   },
   {
     name: "Whisker Dreams",
@@ -77,6 +82,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 5,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Iron Claw Art",
@@ -88,6 +94,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 2,
     active: true,
+    timeRemaining: 3600,
   },
 
   // Event 3 Artists
@@ -101,6 +108,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 1,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Pixel Pounce",
@@ -112,6 +120,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: null,
     active: true,
+    timeRemaining: null,
   },
 
   // Event 4 Artists
@@ -125,6 +134,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: false,
     commissionsRemaining: 0,
     active: true,
+    timeRemaining: null,
   },
   {
     name: "Sketch & Snout",
@@ -136,6 +146,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 4,
     active: true,
+    timeRemaining: 3600,
   },
 
   // Event 5 Artists
@@ -149,6 +160,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 7,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Midnight Howl",
@@ -160,6 +172,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 2,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Sunny Scales",
@@ -171,6 +184,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: false,
     commissionsRemaining: 0,
     active: true,
+    timeRemaining: null,
   },
 
   // Event 6 Artists
@@ -184,6 +198,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: 3,
     active: true,
+    timeRemaining: 3600,
   },
   {
     name: "Wild Strokes",
@@ -195,6 +210,7 @@ export const MockArtistData: Artist[] = [
     commissionsOpen: true,
     commissionsRemaining: null,
     active: true,
+    timeRemaining: null,
   },
 ];
 
@@ -207,6 +223,6 @@ export async function fetchArtist(artistId: string): Promise<Artist> {
       } else {
         reject(new Error("Artist Not Found"));
       }
-    }, 1000);
+    }, 100);
   });
 }

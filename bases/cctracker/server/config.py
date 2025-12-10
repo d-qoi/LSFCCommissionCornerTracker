@@ -10,4 +10,5 @@ class Settings(BaseSettings):
     keycloak_realm: str = "cctracker"
     keycloak_key: str = "cctracker-secret-key"
 
+
 config = Settings()

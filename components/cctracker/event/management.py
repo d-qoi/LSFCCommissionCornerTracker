@@ -8,18 +8,6 @@ from cctracker.event.core import EventManagementDetails, Spot, SpotList, oauth2_
 router = APIRouter()
 
 
-@router.put("/")
-async def create_event(
-    details: EventManagementDetails,
-    user: Annotated[get_current_user].
-    token: Annotated[
-        OAuth2AuthorizationCodeBearer,
-        Security(oauth2_scheme, scopes=["event:create", "event:admin"]),
-    ],
-    security_scopes: SecurityScopes,
-) -> EventManagementDetails:
-    return details
-
 
 @router.post("/{event}")
 async def update_event(

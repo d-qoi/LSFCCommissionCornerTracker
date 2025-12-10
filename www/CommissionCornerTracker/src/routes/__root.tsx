@@ -1,4 +1,3 @@
-import { Collapsible } from '@ark-ui/solid';
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query';
 import { Link, Outlet, createRootRoute } from '@tanstack/solid-router';
 import { TanStackRouterDevtools } from '@tanstack/solid-router-devtools';
@@ -28,14 +27,14 @@ function RootComponent() {
 
   return (
     <>
-      <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
-        <Collapsible.Root defaultOpen class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <header class="fixed top-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="flex items-center justify-between h-16">
-            <Collapsible.Trigger class="text-lg font-semibold text-gray-800 dark:text-gray-200 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
               LSFC Commission Corner
-            </Collapsible.Trigger>
+            </div>
 
-            <Collapsible.Content class="flex-1 ml-8">
+            <div class="flex-1 ml-8">
               <div class="flex justify-between items-center">
                 <nav class="flex space-x-6">
                   <Link
@@ -79,12 +78,12 @@ function RootComponent() {
                   </Link>
                 </div>
               </div>
-            </Collapsible.Content>
+            </div>
           </div>
-        </Collapsible.Root>
+        </div>
       </header>
 
-      <main class="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <main class="pt-16 min-h-screen bg-gray-50 dark:bg-gray-900">
         <QueryClientProvider client={queryClient}>
           <Outlet />
           <SolidQueryDevtools buttonPosition="bottom-left" />

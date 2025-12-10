@@ -6,8 +6,10 @@
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
 
     // Modules
+    "module": "ESNext",
     "esModuleInterop": true,
     "isolatedModules": true,
+    "moduleResolution": "bundler",
 
     // Type Checking & Safety
     "skipLibCheck": true,

@@ -150,3 +150,55 @@ body {
     background-color: var(--accent-hover-dark);
   }
 }
+
+/* Toggle group styling */
+[data-scope="toggle-group"][data-part="item"] {
+  @apply px-3 py-2 rounded-lg text-sm font-medium border transition-colors;
+}
+
+[data-scope="toggle-group"][data-part="item"][data-state="on"][data-value="open"] {
+  background-color: var(--active-border-color);
+  color: white;
+}
+
+[data-scope="toggle-group"][data-part="item"][data-state="on"][data-value="closed"] {
+  background-color: var(--inactive-border-color);
+  color: white;
+}
+
+[data-scope="toggle-group"][data-part="item"][data-state="on"][data-value="count"] {
+  background-color: var(--accent-active);
+  color: white;
+}
+
+/* Number input styling */
+[data-scope="number-input"][data-part="increment-trigger"],
+[data-scope="number-input"][data-part="decrement-trigger"] {
+  background-color: var(--accent-hover);
+  transition: background-color 0.2s ease;
+}
+
+[data-scope="number-input"][data-part="increment-trigger"]:hover,
+[data-scope="number-input"][data-part="decrement-trigger"]:hover {
+  background-color: var(--accent-active);
+}
+
+/* Utility classes for common color patterns */
+.bg-active {
+  background-color: var(--active-border-color);
+  color: white;
+}
+
+.bg-inactive {
+  background-color: var(--inactive-border-color);
+  color: white;
+}
+
+.bg-accent {
+  background-color: var(--accent-active);
+  color: white;
+}
+
+.text-accent {
+  color: var(--accent-active);
+}

@@ -97,7 +97,7 @@ export function ArtistDetails(params: { artistId: string }) {
         </div>
 
         <div class='pt-4'>
-          <Show when={artistData.data?.timeRemaining !== null && artistData.data!.timeRemaining > 0}>
+          <Show when={artistData.data?.timeRemaining !== null && artistData.data?.timeRemaining! > 0}>
             <div class="text-center">
               <h4 class="text-sm font-normal text-gray-600 dark:text-gray-400 mb-2">Time Remaining</h4>
               <Timer.Root autoStart countdown startMs={artistData.data!.timeRemaining! * 1000}>

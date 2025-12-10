@@ -11,6 +11,15 @@ export interface Artist {
   timeRemaining: number | null;
 }
 
+export interface ArtistCustomizableDetails {
+  name: string;
+  details: string;
+  profileUrl: string;
+  imageUrl: string;
+  commissionsOpen: boolean;
+  commissionsRemaining: number | null;
+}
+
 export interface ArtistSummary {
   name: string;
   slug: string;

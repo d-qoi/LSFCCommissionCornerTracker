@@ -7,7 +7,9 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    devtools(),
+    devtools({
+      autoname: true,
+    }),
     tanstackRouter({ target: "solid", autoCodeSplitting: true }),
     solid(),
   ],

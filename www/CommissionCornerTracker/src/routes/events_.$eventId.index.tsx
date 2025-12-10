@@ -5,7 +5,7 @@ import { createMemo, createSignal, Match, Show, Suspense, Switch } from 'solid-j
 import { ArtistDetails } from '@/components/events/ArtistDetails';
 import { EventSeats } from '@/components/events/EventSeats';
 
-export const Route = createFileRoute('/events_/$eventId')({
+export const Route = createFileRoute('/events_/$eventId/')({
   validateSearch: (search: Record<string, unknown>) => ({
     artist: (search.artist as string),
   }),

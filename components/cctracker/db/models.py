@@ -24,6 +24,7 @@ class Event(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     slug: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(256))
+    createdBy: Mapped[str] = mapped_column(String(128))
     hostedBy: Mapped[str] = mapped_column(String(64))
     hostedByUrl: Mapped[str] = mapped_column(String(256))
 

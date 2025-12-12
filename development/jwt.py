@@ -265,3 +265,4 @@ async def combo(
 @app.get("/")
 async def root():
     return {"message": "OAuth2 JWT Scopes with Annotated"}
+

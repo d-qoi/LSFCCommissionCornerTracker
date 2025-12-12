@@ -1,16 +1,17 @@
 from datetime import datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, HTTPException, status, Response
-from pydantic import HttpUrl
-from sqlalchemy import select, exists
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Security
+from sqlalchemy import select, exists, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.status import HTTP_404_NOT_FOUND
 
 from cctracker.db import with_db, models
 from cctracker.log import get_logger
 from cctracker.models.events import EventDetails, EventList, NewEvent
 from cctracker.models.errors import StandardError, StandardErrorTypes
+from cctracker.server.auth import get_current_user
 
 _log = get_logger(__name__)
 
@@ -37,7 +38,7 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> Event
             name=result.name,
             slug=result.slug,
             hostedBy=result.hostedBy,
-            hostedByURL=HttpUrl(result.hostedByUrl),
+            hostedByURL=result.hostedByUrl,
             startDate=result.event_start,
             endDate=result.event_end,
             seats=result.seat_count,
@@ -118,8 +119,11 @@ async def get_event(
 async def create_event(
     newEventDetails: NewEvent,
     response: Response,
+    _user: Annotated[
+        dict[str, str], Security(get_current_user, scopes="events:create")
+    ],
     db: Annotated[AsyncSession, Depends(with_db)],
-):
+) -> StandardError | EventDetails:
     _log.info(f"Creating a new event: {newEventDetails.name}")
     exists_stmt = select(exists().where(models.Event.slug == newEventDetails.slug))
     slug_exists = await db.scalar(exists_stmt)
@@ -134,9 +138,17 @@ async def create_event(
     new_event = models.Event(
         slug=newEventDetails.slug,
         name=newEventDetails.name,
+        # TODO: Replace this with an actual username
+        createdBy="temp",
         hostedBy=newEventDetails.hostedBy,
-        hostedByUrl=newEventDetails.hostedByUrl,
+        hostedByUrl=str(newEventDetails.hostedByUrl),
     )
+
+    if len(newEventDetails.openTimes) == 0:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return StandardError(
+            code=status.HTTP_400_BAD_REQUEST, type=StandardErrorTypes.ADD_TIMES
+        )
 
     for timePairs in newEventDetails.openTimes:
         new_event.open_times.append(
@@ -164,3 +176,125 @@ async def create_event(
         seatsAvailable=new_event.seats_available,
         open=new_event.event_open,
     )
+
+
+@api_router.post("/{eventId}")
+async def update_event(
+    eventId: str,
+    updatedEvent: NewEvent,
+    response: Response,
+    _user: Annotated[
+        dict[str, str], Security(get_current_user, scopes=["events:create"])
+    ],
+    db: Annotated[AsyncSession, Depends(with_db)],
+) -> EventDetails | StandardError:
+    """
+    Update an existing event, changing only the fields provided in the NewEvent structure.
+    Identified by slug in the path (eventId).
+    """
+
+    _log.info(f"Updating event {eventId}")
+
+    stmt = (
+        select(models.Event)
+        .where(models.Event.slug == eventId)
+        .options(
+            selectinload(models.Event.open_times),
+            selectinload(models.Event.seats),
+        )
+    )
+    event = await db.scalar(stmt)
+
+    if event is None:
+        _log.debug(f"Event {eventId} not found for update")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{eventId} not found",
+        )
+    elif event.event_open:
+        _log.debug(f"Event {eventId} is running")
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return StandardError(
+            code=status.HTTP_403_FORBIDDEN, type=StandardErrorTypes.EVENT_STARTED
+        )
+
+    if updatedEvent.slug != event.slug:
+        exists_stmt = select(exists().where(models.Event.slug == updatedEvent.slug))
+        slug_taken = await db.scalar(exists_stmt)
+
+        if slug_taken:
+            response.status_code = status.HTTP_409_CONFLICT
+            return StandardError(
+                code=status.HTTP_409_CONFLICT, type=StandardErrorTypes.SLUG_EXISTS
+            )
+
+    event.slug = updatedEvent.slug
+    event.name = updatedEvent.name
+    event.hostedBy = updatedEvent.hostedBy
+    event.hostedByUrl = str(updatedEvent.hostedByUrl)
+
+    event.open_times.clear()
+    for timePairs in updatedEvent.openTimes:
+        event.open_times.append(
+            models.OpenTime(
+                open_time=timePairs.open_time,
+                close_time=timePairs.close_time,
+            )
+        )
+
+    current_seat_count = len(event.seats)
+    desired_seat_count = updatedEvent.seats
+
+    if desired_seat_count != current_seat_count:
+        # Simple approach: drop all and recreate
+        # (If you need to preserve assignments, you can swap this for smarter logic)
+        event.seats.clear()
+        event.seats = [
+            models.Seat(seat_number=i) for i in range(1, desired_seat_count + 1)
+        ]
+
+    await db.commit()
+    await db.refresh(event)
+
+    updated = EventDetails(
+        name=event.name,
+        slug=event.slug,
+        hostedBy=event.hostedBy,
+        hostedByURL=event.hostedByUrl,
+        startDate=event.event_start,
+        endDate=event.event_end,
+        seats=event.seat_count,
+        seatsAvailable=event.seats_available,
+        open=event.event_open,
+    )
+
+    _log.debug(f"update_event/{eventId} finished: {updated.slug}")
+    return updated
+
+
+@api_router.delete("/{eventId}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(
+    eventId: str,
+    _user: Annotated[
+        dict[str, str], Security(get_current_user, scopes=["admin", "event:create"])
+    ],
+    db: Annotated[AsyncSession, Depends(with_db)],
+):
+    """Delete an event, Admin only"""
+    stmt = (
+        delete(models.Event)
+        .where(models.Event.slug == eventId)
+        .returning(models.Event.name)
+    )
+    result = await db.execute(stmt)
+    event_name = result.scalar()
+    if event_name is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"{eventId} does not exist",
+        )
+
+    _log.info(f"Deleted {event_name} at {eventId}")
+
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

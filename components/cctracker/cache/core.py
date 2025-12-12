@@ -1,0 +1,32 @@
+from fastapi import HTTPException, status
+import valkey.asyncio as valkey
+
+from cctracker.log import get_logger
+
+_log = get_logger(__name__)
+
+_client: valkey.Valkey | None = None
+
+
+def setup_valkey(conn_string: str) -> valkey.Valkey:
+    global _client
+
+    if _client:
+        _log.debug(
+            "Valkey connection pool already initialized, returning existing instance"
+        )
+        return _client
+
+    _client = valkey.Valkey.from_url(conn_string)
+
+    return _client
+
+
+def with_vk() -> valkey.Valkey:
+    if _client is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database Connection Error: Cucumber",
+        )
+
+    return _client

@@ -26,6 +26,8 @@ services:
 
       # DB config: Keycloak will use the same Postgres instance
       KC_DB: postgres
+      KC_DB_USERNAME: keycloak_user
+      KC_DB_PASSWORD: keycloakpass
       KC_DB_URL: jdbc:postgresql://db:5432/keycloak
       KC_BOOTSTRAP_ADMIN_USERNAME: keycloak_user
       KC_BOOTSTRAP_ADMIN_PASSWORD: keycloakpass
@@ -52,6 +54,24 @@ services:
     networks:
       - backend
 
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: cctracker-minio
+    restart: unless-stopped
+    ports:
+      - 9000:9000
+      - 9001:9001
+    volumes:
+      - ./docker_data/minio/data:/data
+    environment:
+      MINIO_ROOT_USER: minio_user
+      MINIO_ROOT_PASSWORD: minio_password
+      MINIO_ADDRESS: ':9000'
+      MINIO_CONSOLE_ADDRESS: ':9001'
+    networks:
+      - backend
+    command: minio server /data
+
   pgweb:
     container_name: pgweb
     restart: always
@@ -61,7 +81,7 @@ services:
     links: 
       - db:db  # my database container is called postgres, not db
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      - PGWEB_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
     depends_on:
       - db
     networks:

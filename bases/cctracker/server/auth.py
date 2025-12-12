@@ -10,7 +10,6 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 
 from cctracker.server.config import config
 
-api_router = APIRouter(prefix="/auth")
 security = HTTPBearer()
 
 keycloak_openid = KeycloakOpenID(
@@ -20,8 +19,10 @@ keycloak_openid = KeycloakOpenID(
     client_secret_key=config.keycloak_key,
 )
 
+
 class VerifyResults(BaseModel):
     user: dict[str, str]
+
 
 class AuthConfig(BaseModel):
     server_url: str = "/auth/"
@@ -73,11 +74,15 @@ async def get_current_user(
     return payload
 
 
+# Auth Routes
+
+api_router = APIRouter(prefix="/auth")
+
+
 @api_router.get("/config")
 async def get_keycloak_config() -> AuthConfig:
     """Returns the Keycloak config for the frontend, or any other services that needs it."""
     return AuthConfig()
-
 
 
 @api_router.post("/verify")

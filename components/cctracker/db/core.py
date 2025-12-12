@@ -12,6 +12,10 @@ def setup_db(conn_string: str) -> AsyncEngine:
     global _engine
     global _sessionMaker
 
+    if _engine:
+        _log.debug("DB is already set up, returning existing instance of engine")
+        return _engine
+
     _log.debug("Setting Up DB Connection")
 
     _engine = create_async_engine(conn_string)

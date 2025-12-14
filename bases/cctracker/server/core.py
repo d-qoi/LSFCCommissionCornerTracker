@@ -16,7 +16,8 @@ log = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(app: FastAPI):
+
     db_engine = setup_db(str(config.db_conn_string))
 
     async with db_engine.begin() as conn:

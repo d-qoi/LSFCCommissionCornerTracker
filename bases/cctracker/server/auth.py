@@ -1,12 +1,12 @@
-from typing import Annotated
+from typing import Annotated, Any
 from functools import lru_cache
 
 from fastapi import Depends, HTTPException, APIRouter, status
 from fastapi.security import HTTPAuthorizationCredentials, SecurityScopes, HTTPBearer
 import jwt
+from itsdangerous.url_safe import URLSafeSerializer
 from keycloak import KeycloakOpenID
 from pydantic import BaseModel
-from starlette.status import HTTP_401_UNAUTHORIZED
 
 from cctracker.server.config import config
 
@@ -19,6 +19,7 @@ keycloak_openid = KeycloakOpenID(
     client_secret_key=config.keycloak_key,
 )
 
+dangerous_cookies = URLSafeSerializer(config.signing_key)
 
 class VerifyResults(BaseModel):
     user: dict[str, str]
@@ -29,6 +30,11 @@ class AuthConfig(BaseModel):
     realm: str = config.keycloak_realm
     client_id: str = config.keycloak_client
 
+def sign(data: dict[str, str], salt: str | None = None):
+    return dangerous_cookies.dumps(data,salt)
+
+def verify(data: str, salt: str | None = None) -> dict[str, str]:
+    return dangerous_cookies.loads(data, salt=salt)
 
 @lru_cache(maxsize=1)
 def get_keycloak_pubkey():
@@ -50,7 +56,7 @@ def decode_jwt(token: str) -> dict[str, str]:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token Expired"
         )
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Invalid Token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Token")
 
     return payload
 

@@ -15,6 +15,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
+
     pass
 
 
@@ -27,7 +28,8 @@ class Event(Base):
     createdBy: Mapped[str] = mapped_column(String(128))
     hostedBy: Mapped[str] = mapped_column(String(64))
     hostedByUrl: Mapped[str] = mapped_column(String(256))
-
+    seatDuration: Mapped[int] = mapped_column(Integer())
+    forceClose: Mapped[bool] = mapped_column(Boolean(), default=False)
     open_times: Mapped[list["OpenTime"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
@@ -88,8 +90,9 @@ class Event(Base):
 
     @property
     def event_open(self) -> bool:
+        if self.forceClose:
+            return False
         return any(ot.open_now for ot in self.open_times)
-
 
 
 class OpenTime(Base):
@@ -173,11 +176,13 @@ class Artist(Base):
         cascade="all, delete-orphan",
     )
 
-    imageUrl: Mapped[str] = mapped_column(String())
-    profileUrl: Mapped[str] = mapped_column(String(256))
-    details: Mapped[str] = mapped_column(String(2048))
-    coms_open: Mapped[bool] = mapped_column(Boolean())
-    coms_remaining: Mapped[int] = mapped_column(Integer())
+    name: Mapped[str] = mapped_column(String(80))
+    slug: Mapped[str] = mapped_column(String(80))
+    imageUrl: Mapped[str] = mapped_column(String(), default="unknown_pfp.png")
+    profileUrl: Mapped[str] = mapped_column(String(256), default="")
+    details: Mapped[str] = mapped_column(String(2048), default="")
+    coms_open: Mapped[bool] = mapped_column(Boolean(), default=True)
+    coms_remaining: Mapped[int | None] = mapped_column(Integer(), nullable=True, default=None)
 
     @property
     def current_seat(self) -> "Seat | None":
@@ -189,6 +194,57 @@ class Artist(Base):
                 return assignment.seat
         return None
 
+    @property
+    def time_remaining(self) -> int | None:
+        """
+        Returns the amount of time remaining in the assignment based on the assignment start time and event duration.
+        """
+        current_seat = self.current_seat
+        if current_seat is None:
+            return None
+
+        now = datetime.now(timezone.utc)
+
+        latest_assignment = None
+        for assignment in self.assignments:
+            if assignment.ended_at is None:
+                latest_assignment = assignment
+
+        if latest_assignment is None:
+            return None
+
+        remaining_time = now - latest_assignment.started_at
+        return int(remaining_time.total_seconds())
+
+    @property
+    def time_since_last_assignment(self) -> int | None:
+        latest_assignment  = None
+        for assignment in self.assignments:
+            if latest_assignment is None:
+                latest_assignment = assignment
+                continue
+            if assignment.ended_at is None:
+                latest_assignment = assignment
+                break
+
+        if latest_assignment is None:
+            return None
+        elif latest_assignment.ended_at is None:
+            return -1
+
+        now = datetime.now(timezone.utc)
+        delta = now - latest_assignment.ended_at
+        return int(delta.seconds)
+
+    # Prevent exact duplicate assignments; you can tweak this as needed.
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "slug",
+            name="uq_artist_slug_event",
+        ),
+    )
+
 
 class SeatAssignment(Base):
     __tablename__ = "seat_assignments"
@@ -198,7 +254,6 @@ class SeatAssignment(Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
     seat_id: Mapped[int] = mapped_column(ForeignKey("seats.id"))
     artist_id: Mapped[int] = mapped_column(ForeignKey("transient_artists.id"))
-
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.now(timezone.utc),
@@ -212,8 +267,8 @@ class SeatAssignment(Base):
     seat: Mapped["Seat"] = relationship(back_populates="assignments")
     artist: Mapped["Artist"] = relationship(back_populates="assignments")
 
+    # Prevent exact duplicate assignments; you can tweak this as needed.
     __table_args__ = (
-        # Prevent exact duplicate assignments; you can tweak this as needed.
         UniqueConstraint(
             "event_id",
             "seat_id",

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Self
-from pydantic import AwareDatetime, BaseModel, HttpUrl, PositiveInt, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, HttpUrl, PositiveInt, field_validator, model_validator
 
 
 class EventDetails(BaseModel):
@@ -10,8 +10,9 @@ class EventDetails(BaseModel):
     hostedByURL: HttpUrl
     startDate: AwareDatetime | None
     endDate: AwareDatetime | None
-    seats: PositiveInt
+    seats: PositiveInt = Field(lt=101)
     seatsAvailable: PositiveInt | None
+    duration: PositiveInt | None = Field(lt=3600*12)
     open: bool
 
 
@@ -41,7 +42,8 @@ class NewEvent(BaseModel):
     slug: str
     hostedBy: str
     hostedByUrl: HttpUrl
-    seats: PositiveInt
+    seats: PositiveInt = Field(lt=101)
+    duration: PositiveInt = Field(lt=3600*12)
     openTimes: list[OpenTimes]
 
     @field_validator("openTimes")

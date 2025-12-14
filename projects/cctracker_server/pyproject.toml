@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "cctracker_server"
+version = "0.1.0"
+
+authors = ["Alex Hirschfeld"]
+license = ""
+
+packages = [
+    {include = "cctracker/server",from = "../../bases"},
+    {include = "cctracker/cache",from = "../../components"},
+    {include = "cctracker/fs",from = "../../components"},
+    {include = "cctracker/log",from = "../../components"},
+    {include = "cctracker/models",from = "../../components"},
+    {include = "cctracker/db",from = "../../components"},
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<4.0"
+fastapi = ">=0.118.0,<0.119.0"
+python-multipart = ">=0.0.20,<0.0.21"
+pydantic-settings = ">=2.11.0,<3.0.0"
+pydantic-extra-types = ">=2.10.5,<3.0.0"
+itsdangerous = ">=2.2.0,<3.0.0"
+sqlalchemy = ">=2.0.44,<3.0.0"
+pyjwt = { version = ">=2.10.1,<3.0.0", extras = ["crypto"] }
+python-keycloak = ">=5.8.1,<6.0.0"
+asyncpg = "^0.31.0"
+valkey = {extras = ["libvalkey"], version = "^6.1.1"}
+minio = "^7.2.20"
+tzdata = "^2025.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

@@ -11,12 +11,13 @@ class Artist(BaseModel):
     commissionsOpen: bool
     commissionsRemaining: PositiveInt
     active: bool
-    timeRemaining: PositiveInt
+    timeRemaining: PositiveInt | None
 
 
 class ArtistCustomizableDetails(BaseModel):
     name: str
     details: str
+    eventId: str
     profileUrl: HttpUrl
     commissionsOpen: bool
     commissionsRemaining: PositiveInt
@@ -28,3 +29,9 @@ class ArtistSummary(BaseModel):
     eventId: str
     imageUrl: str
     seat: PositiveInt
+
+class RequestNewArtist(BaseModel):
+    name: str
+    slug: str
+    eventId: str
+    seat: PositiveInt | None

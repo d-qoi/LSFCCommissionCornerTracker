@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     minio_access_key: str = "2ZH021DFCBKYQ7AOR01R"
     minio_secret_key: str = "1Yh1M+VF5nKhMTppH4ezE2gqLTk6z0RrgeYNmyJU"
     minio_bucket: str = "cctracker"
+    signing_key: str = "TheItsDangerousSigningKey"
 
 
 config = Settings()

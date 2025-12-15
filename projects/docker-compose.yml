@@ -10,6 +10,8 @@ services:
     volumes:
       - ./docker_data/db/data:/var/lib/postgresql
       - ./docker_data/db/initdb.d:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
     networks:
       - backend
 

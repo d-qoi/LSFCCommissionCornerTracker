@@ -12,12 +12,12 @@ from cctracker.models import artists
 from cctracker.models.artists import ArtistSummary
 from cctracker.models.events import EventDetails, EventList, NewEvent
 from cctracker.models.errors import StandardError, StandardErrorTypes
-from cctracker.server.helpers import get_event
+from cctracker.server.helpers import with_event
 from cctracker.server.auth import get_current_user
 
 _log = get_logger(__name__)
 
-api_router = APIRouter(prefix="/event")
+api_router = APIRouter(prefix="/event", tags=["event operations"])
 
 
 @api_router.get("/list")
@@ -147,7 +147,7 @@ async def create_event(
 @api_router.get("/{eventId}")
 async def get_event(
     eventId: str,
-    event: Annotated[models.Event, Depends(get_event)],
+    event: Annotated[models.Event, Depends(with_event)],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> EventDetails:
 
@@ -174,7 +174,7 @@ async def get_event(
 @api_router.get("/{eventId}/artists")
 async def get_event_artists(
     eventId: str, all: bool,
-    event: Annotated[models.Event, Depends(get_event)],
+    event: Annotated[models.Event, Depends(with_event)],
     db: Annotated[AsyncSession, Depends(with_db)]
 ) -> list[ArtistSummary]:
     _log.debug(f"{eventId}/artists called")
@@ -218,7 +218,7 @@ async def update_event(
     eventId: str,
     updatedEvent: NewEvent,
     response: Response,
-    event: Annotated[models.Event, Depends(get_event)],
+    event: Annotated[models.Event, Depends(with_event)],
     _user: Annotated[
         dict[str, str], Security(get_current_user, scopes=["events:create"])
     ],

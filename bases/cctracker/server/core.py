@@ -8,6 +8,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from cctracker.server.auth import api_router as auth_router
+from cctracker.server.api.events import api_router as event_router
+from cctracker.server.api.artist import api_router as artist_router
+from cctracker.server.api.event_artist import api_router as ea_router
 from cctracker.fs import setup_minio
 from cctracker.cache import setup_valkey
 from cctracker.db import setup_db, models
@@ -18,6 +21,8 @@ log = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
+    if config.dev_db:
+        db_engine = setup_db("sqlite+aiosqlite:///cctracker_dev.db")
     db_engine = setup_db(str(config.db_conn_string))
 
     async with db_engine.begin() as conn:
@@ -41,3 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
+app.include_router(event_router)
+#app.include_router(artist_router)
+#app.include_router(ea_router)
+

@@ -20,7 +20,7 @@ def setup_minio(
 
     _log.info("Setting up Minio client")
 
-    _client = Minio(endpoint=endpoint, access_key=access_key, secret_key=secret_key)
+    _client = Minio(endpoint, access_key, secret_key=secret_key, secure=False)
 
     policy = {
         "Version": "2012-10-17",

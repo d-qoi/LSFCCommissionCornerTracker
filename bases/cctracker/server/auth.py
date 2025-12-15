@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from functools import lru_cache
 
@@ -21,8 +22,9 @@ keycloak_openid = KeycloakOpenID(
 
 dangerous_cookies = URLSafeSerializer(config.signing_key)
 
+
 class VerifyResults(BaseModel):
-    user: dict[str, str]
+    user: dict[str, str | int]
 
 
 class AuthConfig(BaseModel):
@@ -30,11 +32,61 @@ class AuthConfig(BaseModel):
     realm: str = config.keycloak_realm
     client_id: str = config.keycloak_client
 
+
+class DevTokenRequest(BaseModel):
+    username: str = "dev_mode_user"
+    scopes: list[str] = ["event:create", "admin"]
+
+
+class DevTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+def create_dev_token(username: str, scopes: list[str]) -> str:
+    """Create a development JWT token"""
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    payload = {
+        "sub": username,
+        "scopes": " ".join(scopes),
+        "aud": "DEV_TOKEN",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "iss": "dev-mode",
+    }
+    return jwt.encode(payload, "DEV_MODE_KEY", algorithm="HS256")
+
+
+def decode_dev_jwt(token: str) -> dict[str, str]:
+    """Decode development JWT token"""
+    if not config.dev_mode:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Dev Mode Not Enabled"
+        )
+    try:
+        return jwt.decode(
+            token,
+            "DEV_MODE_KEY",
+            algorithms=["HS256"],
+            audience="DEV_TOKEN"
+        )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token Expired"
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Token"
+        )
+
+
 def sign(data: dict[str, str], salt: str | None = None):
-    return dangerous_cookies.dumps(data,salt)
+    return dangerous_cookies.dumps(data, salt)
+
 
 def verify(data: str, salt: str | None = None) -> dict[str, str]:
     return dangerous_cookies.loads(data, salt=salt)
+
 
 @lru_cache(maxsize=1)
 def get_keycloak_pubkey():
@@ -42,6 +94,12 @@ def get_keycloak_pubkey():
 
 
 def decode_jwt(token: str) -> dict[str, str]:
+    if config.dev_mode:
+        try:
+            return decode_dev_jwt(token)
+        except HTTPException:
+            pass  # Fall through to keycloak
+
     public_key = (
         f"-----BEGIN PUBLIC KEY-----\n{get_keycloak_pubkey()}\n-----END PUBLIC KEY-----"
     )
@@ -56,7 +114,9 @@ def decode_jwt(token: str) -> dict[str, str]:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token Expired"
         )
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Token"
+        )
 
     return payload
 
@@ -82,7 +142,7 @@ async def get_current_user(
 
 # Auth Routes
 
-api_router = APIRouter(prefix="/auth")
+api_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @api_router.get("/config")
@@ -96,6 +156,12 @@ async def verify_token(
     token: Annotated[HTTPAuthorizationCredentials, Depends(security)],
 ):
     """Verify JWT token and return the results"""
+    if config.dev_mode:
+        try:
+            token_info = decode_dev_jwt(token.credentials)
+            return VerifyResults(user=token_info)
+        except HTTPException:
+            pass
     try:
         # Verify token with Keycloak
         token_info: dict[str, str] = keycloak_openid.introspect(token.credentials)
@@ -104,3 +170,13 @@ async def verify_token(
         return VerifyResults(user=token_info)
     except Exception:
         raise HTTPException(status_code=401, detail="Token verification failed")
+
+
+@api_router.post("/dev-token", response_model=DevTokenResponse)
+async def generate_dev_token(token_details: DevTokenRequest):
+    """Generate a development token (only available in dev_mode)"""
+    if not config.dev_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    token = create_dev_token(token_details.username, token_details.scopes)
+    return DevTokenResponse(access_token=token)

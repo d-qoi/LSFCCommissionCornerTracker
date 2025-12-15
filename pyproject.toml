@@ -37,6 +37,7 @@ black = ">=25.9.0,<26.0.0"
 isort = ">=6.0.1,<7.0.0"
 granian = { version = ">=2.6.0,<3.0.0", extras = ["pname", "uvloop"] }
 pytest = "^9.0.2"
+aiosqlite = "^0.22.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

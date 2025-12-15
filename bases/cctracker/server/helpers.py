@@ -10,7 +10,7 @@ from cctracker.log import get_logger
 
 log = get_logger(__name__)
 
-async def get_event(eventId: str, db: Annotated[AsyncSession, Depends(with_db)]) -> models.Event:
+async def with_event(eventId: str, db: Annotated[AsyncSession, Depends(with_db)]) -> models.Event:
     stmt = select(models.Event).where(models.Event.slug == eventId).options(
         selectinload(models.Event.seats),
         selectinload(models.Event.artists),

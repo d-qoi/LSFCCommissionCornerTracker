@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Depends, HTTPException, status, Security, Request
 from fastapi.security import (
+    HTTPBearer,
     OAuth2PasswordBearer,
     OAuth2PasswordRequestForm,
     SecurityScopes,
@@ -45,7 +46,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         async def bodygen():
             yield body_bytes
 
-        request._receive = lambda: {"type": "http.request", "body": body_bytes, "more_body": False}
+        request._receive = lambda: {
+            "type": "http.request",
+            "body": body_bytes,
+            "more_body": False,
+        }
 
         # -------------------------------------------------------
         # Process the request, capture the response
@@ -79,6 +84,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         )
         return new_response
 
+
 app = FastAPI(title="OAuth2 Scope Playground (JWT + Annotated)")
 app.add_middleware(LoggingMiddleware)
 # ---------------------------------------------------------------------
@@ -94,8 +100,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 # ---------------------------------------------------------------------
 fake_users_db: dict[str, dict[str, Any]] = {
     "alice": {"username": "alice", "password": "secret", "scopes": ["read"]},
-    "bob":   {"username": "bob",   "password": "secret", "scopes": ["read", "write"]},
-    "admin": {"username": "admin", "password": "secret", "scopes": ["read", "write", "admin"]},
+    "bob": {"username": "bob", "password": "secret", "scopes": ["read", "write"]},
+    "admin": {
+        "username": "admin",
+        "password": "secret",
+        "scopes": ["read", "write", "admin"],
+    },
 }
 
 
@@ -199,13 +209,43 @@ async def get_current_user(
     return User(username=username, scopes=token_scopes)
 
 
+async def get_current_user_v2(
+    security_scopes: SecurityScopes,
+    token: Annotated[str, Depends(HTTPBearer())],
+) -> User:
+    payload = decode_access_token(token)
+
+    username = payload.get("sub")
+    token_scopes = payload.get("scopes", [])
+
+    if username is None:
+        raise HTTPException(status_code=401, detail="Token missing subject")
+
+    user = fake_users_db.get(username)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    token_scopes_set = set(token_scopes)
+    required_scopes = set(security_scopes.scopes)
+
+    if not required_scopes.issubset(token_scopes_set):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Not enough permissions",
+                "required": list(required_scopes),
+                "token_scopes": token_scopes,
+            },
+        )
+
+    return User(username=username, scopes=token_scopes)
+
+
 # ---------------------------------------------------------------------
 # Token endpoint
 # ---------------------------------------------------------------------
 @app.post("/token", response_model=Token)
-async def issue_token(
-    form: Annotated[OAuth2PasswordRequestForm, Depends()]
-):
+async def issue_token(form: Annotated[OAuth2PasswordRequestForm, Depends()]):
     user = authenticate_user(form.username, form.password)
     if not user:
         raise HTTPException(401, detail="Incorrect username or password")
@@ -213,7 +253,7 @@ async def issue_token(
     allowed_scopes = set(user["scopes"])
     requested_scopes = set(form.scopes)
     granted_scopes = list(allowed_scopes.intersection(requested_scopes))
-    
+
     jwt_token = create_access_token(subject=form.username, scopes=granted_scopes)
 
     return Token(access_token=jwt_token, token_type="bearer", scopes=granted_scopes)
@@ -224,40 +264,35 @@ async def issue_token(
 # ---------------------------------------------------------------------
 @app.get("/me", response_model=User)
 async def read_me(
-    current_user: Annotated[
-        User,
-        Security(get_current_user, scopes=["read"])
-    ],
+    current_user: Annotated[User, Security(get_current_user, scopes=["read"])],
+):
+    return current_user
+
+
+@app.get("/me2", response_model=User)
+async def read_me2(
+    current_user: Annotated[User, Security(get_current_user_v2, scopes=["read"])],
 ):
     return current_user
 
 
 @app.post("/items", response_model=User)
 async def create_item(
-    current_user: Annotated[
-        User,
-        Security(get_current_user, scopes=["write"])
-    ],
+    current_user: Annotated[User, Security(get_current_user, scopes=["write"])],
 ):
     return current_user
 
 
 @app.get("/admin", response_model=User)
 async def admin_only(
-    current_user: Annotated[
-        User,
-        Security(get_current_user, scopes=["admin"])
-    ],
+    current_user: Annotated[User, Security(get_current_user, scopes=["admin"])],
 ):
     return current_user
 
 
 @app.get("/combo", response_model=User)
 async def combo(
-    current_user: Annotated[
-        User,
-        Security(get_current_user, scopes=["read", "write"])
-    ],
+    current_user: Annotated[User, Security(get_current_user, scopes=["read", "write"])],
 ):
     return current_user
 
@@ -265,4 +300,3 @@ async def combo(
 @app.get("/")
 async def root():
     return {"message": "OAuth2 JWT Scopes with Annotated"}
-

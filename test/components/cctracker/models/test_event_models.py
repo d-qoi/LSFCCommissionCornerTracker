@@ -56,6 +56,7 @@ def make_event(open_times: list[OpenTimes]) -> NewEvent:
         name="Test Event",
         slug="test-event",
         hostedBy="Tester",
+        duration=100,
         hostedByUrl="https://example.com",  # pydantic will coerce to HttpUrl
         seats=10,
         openTimes=open_times,

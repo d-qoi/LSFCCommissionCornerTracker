@@ -1,3 +1,4 @@
+import logging
 from cctracker.server.config import config
 from cctracker.log import get_logger, configure_logging
 
@@ -22,6 +23,8 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI):
 
     if config.dev_db:
+        aiosqlite_logger = get_logger("aiosqlite")
+        aiosqlite_logger.setLevel(logging.INFO)
         db_engine = setup_db("sqlite+aiosqlite:///cctracker_dev.db")
     db_engine = setup_db(str(config.db_conn_string))
 
@@ -47,6 +50,6 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
 app.include_router(event_router)
-#app.include_router(artist_router)
-#app.include_router(ea_router)
+app.include_router(artist_router)
+app.include_router(ea_router)
 

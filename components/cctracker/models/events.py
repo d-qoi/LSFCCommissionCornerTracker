@@ -12,7 +12,7 @@ class EventDetails(BaseModel):
     endDate: AwareDatetime | None
     seats: PositiveInt = Field(lt=101)
     seatsAvailable: PositiveInt | None
-    duration: PositiveInt | None = Field(lt=3600*12)
+    duration: PositiveInt | None = Field(lt=3600*12, default=3600*4)
     open: bool
 
 

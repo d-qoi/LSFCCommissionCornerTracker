@@ -13,20 +13,20 @@ class TestModel(BaseModel):
 
 
 tm = TestModel(
-    d=date.today(), dt=datetime.now(), t=time(10, tzinfo=ZoneInfo("America/Chicago"))
+    d=date.today(), dt=datetime.now(), t=time(10, tzinfo=ZoneInfo("America/New_York"))
 )
 
-now = datetime.now(timezone.utc)
+now = datetime.now(ZoneInfo("America/New_York"))
 
 new_event = NewEvent(
     name="TestEvent",
-    slug="test-event",
+    slug="test-event2",
     hostedBy="https://example.com",
     hostedByUrl="https://example.com",
     seats=10,
     duration=3600*4,
     openTimes=[
-        OpenTimes(open_time=now + timedelta(days=1), close_time=now+timedelta(days=1,hours=8)),
+        OpenTimes(open_time=now + timedelta(days=0, minutes=-60), close_time=now+timedelta(minutes=3)),
         OpenTimes(open_time=now + timedelta(days=2), close_time=now+timedelta(days=2,hours=8)),
         OpenTimes(open_time=now + timedelta(days=3), close_time=now+timedelta(days=3,hours=8)),
         OpenTimes(open_time=now + timedelta(days=4), close_time=now+timedelta(days=4,hours=8)),

@@ -1,17 +1,13 @@
 import logging
-from cctracker.server.config import config
-from cctracker.log import get_logger, configure_logging
-
-configure_logging(config.log_level, config.log_file)
-
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
+from cctracker.server.config import config
 from cctracker.server.auth import api_router as auth_router
 from cctracker.server.api.events import api_router as event_router
 from cctracker.server.api.artist import api_router as artist_router
 from cctracker.server.api.event_artist import api_router as ea_router
+from cctracker.log import get_logger
 from cctracker.fs import setup_minio
 from cctracker.cache import setup_valkey
 from cctracker.db import setup_db, models
@@ -26,7 +22,8 @@ async def lifespan(app: FastAPI):
         aiosqlite_logger = get_logger("aiosqlite")
         aiosqlite_logger.setLevel(logging.INFO)
         db_engine = setup_db("sqlite+aiosqlite:///cctracker_dev.db")
-    db_engine = setup_db(str(config.db_conn_string))
+    else:
+        db_engine = setup_db(str(config.db_conn_string))
 
     async with db_engine.begin() as conn:
         log.info("Configuring Database")
@@ -42,8 +39,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    log.info("Returning from server, finishing lifespan")
+
     await db_engine.dispose()
     await valkey_client.aclose()
+
+    log.info("Goodbye")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -52,4 +53,3 @@ app.include_router(auth_router)
 app.include_router(event_router)
 app.include_router(artist_router)
 app.include_router(ea_router)
-

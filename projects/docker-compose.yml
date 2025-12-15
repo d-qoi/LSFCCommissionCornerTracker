@@ -11,7 +11,7 @@ services:
       - ./docker_data/db/data:/var/lib/postgresql
       - ./docker_data/db/initdb.d:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"
+      - 5432:5432
     networks:
       - backend
 
@@ -41,7 +41,7 @@ services:
     command:
       - start-dev
     ports:
-      - "8080:8080"   # Keycloak admin UI on localhost:8080
+      - 8080:8080   # Keycloak admin UI on localhost:8080
     networks:
       - backend
 

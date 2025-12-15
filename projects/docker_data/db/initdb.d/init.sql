@@ -22,3 +22,7 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
 ALTER SCHEMA public OWNER TO keycloak_user;
 GRANT USAGE, CREATE ON SCHEMA public TO keycloak_user;
+
+\connect cctracker;
+GRANT ALL ON SCHEMA public TO webserver_user;
+GRANT ALL ON SCHEMA public TO ptbapp_user;

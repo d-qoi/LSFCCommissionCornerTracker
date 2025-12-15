@@ -1,25 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from typing import Self
-from pydantic import AwareDatetime, BaseModel, Field, HttpUrl, PositiveInt, field_validator, model_validator
-
-
-class EventDetails(BaseModel):
-    name: str
-    slug: str
-    hostedBy: str
-    hostedByURL: HttpUrl
-    startDate: AwareDatetime | None
-    endDate: AwareDatetime | None
-    seats: PositiveInt = Field(lt=101)
-    seatsAvailable: PositiveInt | None
-    duration: PositiveInt | None = Field(lt=3600*12, default=3600*4)
-    open: bool
-
-
-class EventList(BaseModel):
-    current: list[EventDetails] = []
-    upcoming: list[EventDetails] = []
-    past: list[EventDetails] = []
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    Field,
+    HttpUrl,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
 
 class OpenTimes(BaseModel):
@@ -37,13 +26,33 @@ class OpenTimes(BaseModel):
         return self
 
 
+class EventDetails(BaseModel):
+    name: str
+    slug: str
+    hostedBy: str
+    hostedByUrl: HttpUrl
+    startDate: AwareDatetime | None
+    endDate: AwareDatetime | None
+    seats: PositiveInt = Field(lt=101)
+    seatsAvailable: PositiveInt | None
+    duration: PositiveInt | None = Field(lt=3600 * 12, default=3600 * 4)
+    open: bool
+    openTimes: list[OpenTimes] = []
+
+
+class EventList(BaseModel):
+    current: list[EventDetails] = []
+    upcoming: list[EventDetails] = []
+    past: list[EventDetails] = []
+
+
 class NewEvent(BaseModel):
     name: str
     slug: str
     hostedBy: str
     hostedByUrl: HttpUrl
     seats: PositiveInt = Field(lt=101)
-    duration: PositiveInt = Field(lt=3600*12)
+    duration: PositiveInt = Field(lt=3600 * 12)
     openTimes: list[OpenTimes]
 
     @field_validator("openTimes")
@@ -59,7 +68,7 @@ class NewEvent(BaseModel):
             if prev.close_time > curr.open_time:
                 raise ValueError("Open/close intervals must not overlap")
 
-            if  curr.open_time - prev.close_time > timedelta(days=7):
+            if curr.open_time - prev.close_time > timedelta(days=7):
                 raise ValueError("Open time can't be a week after last close time.")
 
         # Only the earliest pair can be on the current day
@@ -76,4 +85,3 @@ class NewEvent(BaseModel):
             raise ValueError("Only one open/close pair may be on the current day.")
 
         return sorted_times
-

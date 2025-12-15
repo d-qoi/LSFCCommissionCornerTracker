@@ -13,6 +13,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
+def utcnow() -> datetime:
+    """Timezone-aware 'now' for defaults."""
+    return datetime.now(timezone.utc)
+
+
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
@@ -23,28 +28,54 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    # General Data
     slug: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(256))
     createdBy: Mapped[str] = mapped_column(String(128))
     hostedBy: Mapped[str] = mapped_column(String(64))
     hostedByUrl: Mapped[str] = mapped_column(String(256))
-    seatDuration: Mapped[int] = mapped_column(Integer())
+    seatDuration: Mapped[int] = mapped_column(Integer())  # assumed minutes
     forceClose: Mapped[bool] = mapped_column(Boolean(), default=False)
+
     open_times: Mapped[list["OpenTime"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     seats: Mapped[list["Seat"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     artists: Mapped[list["Artist"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     assignments: Mapped[list["SeatAssignment"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # Owners/editors
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner: Mapped["UserData | None"] = relationship(
+        "UserData",
+        back_populates="owned_events",
+        foreign_keys=[owner_user_id],
+    )
+
+    editors: Mapped[list["UserData"]] = relationship(
+        "UserData",
+        secondary="event_editors",
+        back_populates="editable_events",
+        passive_deletes=True,
     )
 
     @property
@@ -57,36 +88,24 @@ class Event(Base):
 
     @property
     def event_start(self) -> datetime | None:
-        """
-        Earliest open_time across all OpenTime entries for this event.
-        Returns None if there are no open_times.
-        """
         if not self.open_times:
             return None
         return min(ot.open_time for ot in self.open_times)
 
     @property
     def event_end(self) -> datetime | None:
-        """
-        Latest close_time across all OpenTime entries for this event.
-        Returns None if there are no open_times.
-        """
         if not self.open_times:
             return None
         return max(ot.close_time for ot in self.open_times)
 
     @property
     def event_running(self) -> bool:
-        if not self.open_times:
-            return False
-
         start = self.event_start
         end = self.event_end
-
-        assert start is not None
-        assert end is not None
-
-        return start < datetime.now(timezone.utc) < end
+        if start is None or end is None:
+            return False
+        now = utcnow()
+        return start < now < end
 
     @property
     def event_open(self) -> bool:
@@ -100,7 +119,7 @@ class OpenTime(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
     event: Mapped["Event"] = relationship(back_populates="open_times")
 
     open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -108,11 +127,7 @@ class OpenTime(Base):
 
     @property
     def open_now(self) -> bool:
-        """
-        True if the current UTC time is between open_time (inclusive)
-        and close_time (exclusive).
-        """
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         return self.open_time <= now < self.close_time
 
 
@@ -121,43 +136,31 @@ class Seat(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    # e.g., seat row/number; you can expand this later (row, section, etc.)
     seat_number: Mapped[int] = mapped_column(Integer())
 
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
     event: Mapped["Event"] = relationship(back_populates="seats")
 
     assignments: Mapped[list["SeatAssignment"]] = relationship(
         back_populates="seat",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     __table_args__ = (
-        # One seat_number per event (no duplicates).
         UniqueConstraint("event_id", "seat_number", name="uq_seat_event_seat_number"),
     )
 
-    # ---- Convenience properties ----
-
     @property
     def current_assignment(self) -> "SeatAssignment | None":
-        """
-        Return the currently active assignment for this seat, if any.
-
-        Active = assignment where ended_at is None.
-        If there are multiple active assignments (shouldn't happen if you manage it
-        correctly), this returns the first one in the in-memory collection.
-        """
-        for assignment in self.assignments:
-            if assignment.ended_at is None:
-                return assignment
-        return None
+        active = [a for a in self.assignments if a.ended_at is None]
+        if not active:
+            return None
+        # prefer the most recent active assignment
+        return max(active, key=lambda a: a.started_at)
 
     @property
     def current_artist(self) -> "Artist | None":
-        """
-        Return the currently assigned artist for this seat, if any.
-        """
         assignment = self.current_assignment
         return assignment.artist if assignment is not None else None
 
@@ -167,13 +170,13 @@ class Artist(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
     event: Mapped["Event"] = relationship(back_populates="artists")
 
-    # all the seats this artist has been assigned to over time
     assignments: Mapped[list["SeatAssignment"]] = relationship(
         back_populates="artist",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     name: Mapped[str] = mapped_column(String(80))
@@ -182,68 +185,60 @@ class Artist(Base):
     profileUrl: Mapped[str] = mapped_column(String(256), default="")
     details: Mapped[str] = mapped_column(String(2048), default="")
     coms_open: Mapped[bool] = mapped_column(Boolean(), default=True)
-    coms_remaining: Mapped[int | None] = mapped_column(Integer(), nullable=True, default=None)
+    coms_remaining: Mapped[int | None] = mapped_column(
+        Integer(), nullable=True, default=None
+    )
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "slug", name="uq_artist_slug_event"),
+    )
 
     @property
     def current_seat(self) -> "Seat | None":
-        """
-        Return the current seat this artist is assigned to, if any.
-        """
-        for assignment in self.assignments:
-            if assignment.ended_at is None:
-                return assignment.seat
-        return None
+        active = [a for a in self.assignments if a.ended_at is None]
+        if not active:
+            return None
+        latest = max(active, key=lambda a: a.started_at)
+        return latest.seat
 
     @property
     def time_remaining(self) -> int | None:
         """
-        Returns the amount of time remaining in the assignment based on the assignment start time and event duration.
+        Remaining seconds in the current assignment.
+        Assumes Event.seatDuration is in minutes.
         """
-        current_seat = self.current_seat
-        if current_seat is None:
+        active = [a for a in self.assignments if a.ended_at is None]
+        if not active:
             return None
 
-        now = datetime.now(timezone.utc)
+        latest = max(active, key=lambda a: a.started_at)
+        now = utcnow()
 
-        latest_assignment = None
-        for assignment in self.assignments:
-            if assignment.ended_at is None:
-                latest_assignment = assignment
-
-        if latest_assignment is None:
-            return None
-
-        remaining_time = now - latest_assignment.started_at
-        return int(remaining_time.total_seconds())
+        duration_seconds = int(self.event.seatDuration * 60)
+        elapsed_seconds = int((now - latest.started_at).total_seconds())
+        return max(0, duration_seconds - elapsed_seconds)
 
     @property
     def time_since_last_assignment(self) -> int | None:
-        latest_assignment  = None
-        for assignment in self.assignments:
-            if latest_assignment is None:
-                latest_assignment = assignment
-                continue
-            if assignment.ended_at is None:
-                latest_assignment = assignment
-                break
-
-        if latest_assignment is None:
-            return None
-        elif latest_assignment.ended_at is None:
+        """
+        Seconds since the most recently ended assignment.
+        Returns:
+          - None if the artist has never been assigned
+          - -1 if currently assigned
+          - >=0 seconds since last ended assignment otherwise
+        """
+        if any(a.ended_at is None for a in self.assignments):
             return -1
 
-        now = datetime.now(timezone.utc)
-        delta = now - latest_assignment.ended_at
-        return int(delta.seconds)
+        ended = [a for a in self.assignments if a.ended_at is not None]
+        if not ended:
+            return None
 
-    # Prevent exact duplicate assignments; you can tweak this as needed.
-    __table_args__ = (
-        UniqueConstraint(
-            "event_id",
-            "slug",
-            name="uq_artist_slug_event",
-        ),
-    )
+        latest = max(ended, key=lambda a: a.ended_at)  # type: ignore[arg-type]
+        assert latest.ended_at is not None
+
+        delta = utcnow() - latest.ended_at
+        return int(delta.total_seconds())
 
 
 class SeatAssignment(Base):
@@ -251,12 +246,15 @@ class SeatAssignment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
-    seat_id: Mapped[int] = mapped_column(ForeignKey("seats.id"))
-    artist_id: Mapped[int] = mapped_column(ForeignKey("transient_artists.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
+    seat_id: Mapped[int] = mapped_column(ForeignKey("seats.id", ondelete="CASCADE"))
+    artist_id: Mapped[int] = mapped_column(
+        ForeignKey("transient_artists.id", ondelete="CASCADE")
+    )
+
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.now(timezone.utc),
+        default=utcnow,  # IMPORTANT: callable default
     )
     ended_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -267,7 +265,6 @@ class SeatAssignment(Base):
     seat: Mapped["Seat"] = relationship(back_populates="assignments")
     artist: Mapped["Artist"] = relationship(back_populates="assignments")
 
-    # Prevent exact duplicate assignments; you can tweak this as needed.
     __table_args__ = (
         UniqueConstraint(
             "event_id",
@@ -277,3 +274,63 @@ class SeatAssignment(Base):
             name="uq_seat_assignment_identity",
         ),
     )
+
+
+class EventEditor(Base):
+    __tablename__ = "event_editors"
+
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    __table_args__ = (UniqueConstraint("event_id", "user_id", name="uq_event_editor"),)
+
+
+class UserData(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # single-owner inverse (matches Event.owner_user_id)
+    owned_events: Mapped[list["Event"]] = relationship(
+        "Event",
+        back_populates="owner",
+        foreign_keys="Event.owner_user_id",
+    )
+
+    # editors many-to-many
+    editable_events: Mapped[list["Event"]] = relationship(
+        "Event",
+        secondary="event_editors",
+        back_populates="editors",
+        passive_deletes=True,
+    )
+
+    # 1:1 (nullable) profile-ish data
+    artist_data: Mapped["UserArtistData | None"] = relationship(
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class UserArtistData(Base):
+    __tablename__ = "saved_artists"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,      # enforces 1:1
+    )
+    user: Mapped["UserData"] = relationship(back_populates="artist_data")
+
+
+    name: Mapped[str] = mapped_column(String(80))
+    imageUrl: Mapped[str] = mapped_column(String(), default="unknown_pfp.png")
+    profileUrl: Mapped[str] = mapped_column(String(256), default="")
+    details: Mapped[str] = mapped_column(String(2048), default="")

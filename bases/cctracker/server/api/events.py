@@ -8,14 +8,18 @@ from sqlalchemy.orm import selectinload
 
 from cctracker.db import with_db, models
 from cctracker.log import get_logger
-from cctracker.models import artists
 from cctracker.models.artists import ArtistSummary
-from cctracker.models.events import EventDetails, EventList, NewEvent
+from cctracker.models.events import EventDetails, EventList, NewEvent, OpenTimes
 from cctracker.models.errors import StandardError, StandardErrorTypes
 from cctracker.server.helpers import with_event
 from cctracker.server.auth import get_current_user
 
 _log = get_logger(__name__)
+
+_log.debug("auth debug")
+_log.info("auth info")
+_log.warning("auth warning")
+_log.error("auth error")
 
 api_router = APIRouter(prefix="/event", tags=["event operations"])
 
@@ -24,14 +28,17 @@ api_router = APIRouter(prefix="/event", tags=["event operations"])
 async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> EventList:
     """Get all events"""
 
-    _log.info("get_all_events called")
+    _log.info("Fetching all events")
 
     event_list = EventList()
 
     stmt = select(models.Event).options(
         selectinload(models.Event.open_times),
-        selectinload(models.Event.seats),
+        selectinload(models.Event.seats).selectinload(models.Seat.assignments),
+        selectinload(models.Event.artists),
+        selectinload(models.Event.assignments)
     )
+    _log.debug("Executing database query for all events")
     results = await db.scalars(stmt)
 
     today = datetime.now(ZoneInfo("UTC"))
@@ -40,7 +47,7 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> Event
             name=result.name,
             slug=result.slug,
             hostedBy=result.hostedBy,
-            hostedByURL=result.hostedByUrl,
+            hostedByUrl=result.hostedByUrl,
             startDate=result.event_start,
             endDate=result.event_end,
             seats=result.seat_count,
@@ -72,10 +79,10 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> Event
         else:
             _log.debug("Current Event")
             event_list.current.append(event)
-    _log.debug(f"Upcoming: {len(event_list.upcoming)}")
-    _log.debug(f"Current: {len(event_list.current)}")
-    _log.debug(f"Past: {len(event_list.past)}")
-    _log.debug("get_all_events finished")
+    _log.info(f"Retrieved {len(event_list.upcoming)} upcoming, ")
+    _log.info(
+        f"{len(event_list.current)} current, and {len(event_list.past)} past events"
+    )
     return event_list
 
 
@@ -84,20 +91,28 @@ async def create_event(
     newEventDetails: NewEvent,
     response: Response,
     _user: Annotated[
-        dict[str, str], Security(get_current_user, scopes="events:create")
+        dict[str, str], Security(get_current_user, scopes=["event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> StandardError | EventDetails:
-    _log.info(f"Creating a new event: {newEventDetails.name}")
+    _log.info(
+        f"User attempting to create event: '{newEventDetails.name}' with slug '{newEventDetails.slug}'"
+    )
+
     exists_stmt = select(exists().where(models.Event.slug == newEventDetails.slug))
     slug_exists = await db.scalar(exists_stmt)
 
     if bool(slug_exists):
+        _log.warning(
+            f"Event creation failed: slug '{newEventDetails.slug}' already exists"
+        )
         response.status_code = status.HTTP_409_CONFLICT
         return StandardError(
             code=status.HTTP_409_CONFLICT,
             type=StandardErrorTypes.SLUG_EXISTS,
         )
+
+    _log.debug("Slug does not exist, continuing")
 
     new_event = models.Event(
         slug=newEventDetails.slug,
@@ -106,10 +121,15 @@ async def create_event(
         createdBy="temp",
         hostedBy=newEventDetails.hostedBy,
         hostedByUrl=str(newEventDetails.hostedByUrl),
-        duration=newEventDetails.duration,
+        seatDuration=newEventDetails.duration,
     )
 
+    _log.debug(f"New Event: {new_event}")
+
     if len(newEventDetails.openTimes) == 0:
+        _log.warning(
+            f"Event creation failed: no open times specified for '{newEventDetails.name}'"
+        )
         response.status_code = status.HTTP_400_BAD_REQUEST
         return StandardError(
             code=status.HTTP_400_BAD_REQUEST, type=StandardErrorTypes.ADD_TIMES
@@ -125,20 +145,26 @@ async def create_event(
     new_event.seats = [
         models.Seat(seat_number=i) for i in range(1, newEventDetails.seats + 1)
     ]
+    _log.debug(
+        f"Creating event with {newEventDetails.seats} seats and {len(newEventDetails.openTimes)} time slots"
+    )
 
     db.add(new_event)
     await db.commit()
+    _log.info(
+        f"Successfully created event '{new_event.name}' with slug '{new_event.slug}'"
+    )
 
     response.status_code = status.HTTP_201_CREATED
     return EventDetails(
         name=new_event.name,
         slug=new_event.slug,
         hostedBy=new_event.hostedBy,
-        hostedByURL=new_event.hostedByUrl,
+        hostedByUrl=new_event.hostedByUrl,
         startDate=new_event.event_start,
         endDate=new_event.event_end,
         seats=new_event.seat_count,
-        seatsAvailable=new_event.seats_available,
+        seatsAvailable=new_event.seat_count,
         open=new_event.event_open,
         duration=new_event.seatDuration,
     )
@@ -151,33 +177,44 @@ async def get_event(
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> EventDetails:
 
-    _log.info(f"get_event/{eventId} called")
+    _log.debug(f"Fetching details for event '{eventId}'")
+
+    openTimes:list[OpenTimes] = []
+
+    for time in event.open_times:
+        openTimes.append(OpenTimes(
+            open_time=time.open_time,
+            close_time=time.close_time
+            ))
 
     event_details = EventDetails(
         name=event.name,
         slug=event.slug,
         hostedBy=event.hostedBy,
-        hostedByURL=event.hostedByUrl,
+        hostedByUrl=event.hostedByUrl,
         startDate=event.event_start,
         endDate=event.event_end,
         seats=event.seat_count,
         seatsAvailable=event.seats_available,
         open=event.event_open,
+        openTimes=openTimes,
         duration=event.seatDuration,
     )
 
-    _log.debug(f"get_event/{eventId} finished")
+    _log.debug(f"Event '{eventId}': {event.seats_available}/{event.seat_count} seats available, ")
+    _log.debug(f"open={event.event_open}")
 
     return event_details
 
 
 @api_router.get("/{eventId}/artists")
 async def get_event_artists(
-    eventId: str, all: bool,
+    eventId: str,
+    all: bool,
     event: Annotated[models.Event, Depends(with_event)],
-    db: Annotated[AsyncSession, Depends(with_db)]
+    db: Annotated[AsyncSession, Depends(with_db)],
 ) -> list[ArtistSummary]:
-    _log.debug(f"{eventId}/artists called")
+    _log.debug(f"Fetching artists for event '{eventId}' (include_unseated={all})")
 
     artist_list: list[ArtistSummary] = []
     unseated_artists: list[ArtistSummary] = []
@@ -206,7 +243,10 @@ async def get_event_artists(
             )
         )
 
-    _log.debug(f"{len(artist_list)} artists seated, {len(unseated_artists)} not seated")
+    _log.info(
+        f"Event '{eventId}': returning {len(artist_list)} seated artists"
+        + (f" and {len(unseated_artists)} unseated artists" if unseated_artists else "")
+    )
     artist_list += unseated_artists
 
     return artist_list
@@ -220,7 +260,7 @@ async def update_event(
     response: Response,
     event: Annotated[models.Event, Depends(with_event)],
     _user: Annotated[
-        dict[str, str], Security(get_current_user, scopes=["events:create"])
+        dict[str, str], Security(get_current_user, scopes=["event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> EventDetails | StandardError:
@@ -229,20 +269,24 @@ async def update_event(
     Identified by slug in the path (eventId).
     """
 
-    _log.info(f"Updating event {eventId}")
+    _log.info(f"User attempting to update event '{eventId}'")
 
     if event.event_open:
-        _log.debug(f"Event {eventId} is running")
+        _log.warning(f"Update denied: event '{eventId}' is currently running")
         response.status_code = status.HTTP_403_FORBIDDEN
         return StandardError(
             code=status.HTTP_403_FORBIDDEN, type=StandardErrorTypes.EVENT_STARTED
         )
 
     elif updatedEvent.slug != event.slug:
+        _log.debug(f"Event slug changing from '{event.slug}' to '{updatedEvent.slug}'")
         exists_stmt = select(exists().where(models.Event.slug == updatedEvent.slug))
         slug_taken = await db.scalar(exists_stmt)
 
         if slug_taken:
+            _log.warning(
+                f"Update failed: new slug '{updatedEvent.slug}' already exists"
+            )
             response.status_code = status.HTTP_409_CONFLICT
             return StandardError(
                 code=status.HTTP_409_CONFLICT, type=StandardErrorTypes.SLUG_EXISTS
@@ -267,6 +311,9 @@ async def update_event(
     desired_seat_count = updatedEvent.seats
 
     if desired_seat_count != current_seat_count:
+        _log.info(
+            f"Updating seat count for '{eventId}': {current_seat_count} -> {desired_seat_count}"
+        )
         # Simple approach: drop all and recreate
         # (If you need to preserve assignments, you can swap this for smarter logic)
         event.seats.clear()
@@ -281,43 +328,34 @@ async def update_event(
         name=event.name,
         slug=event.slug,
         hostedBy=event.hostedBy,
-        hostedByURL=event.hostedByUrl,
+        hostedByUrl=event.hostedByUrl,
         startDate=event.event_start,
         endDate=event.event_end,
         seats=event.seat_count,
-        seatsAvailable=event.seats_available,
+        seatsAvailable=event.seat_count,
         open=event.event_open,
         duration=event.seatDuration,
+        openTimes=[OpenTimes(open_time=t.open_time, close_time=t.close_time) for t in event.open_times]
     )
 
-    _log.debug(f"update_event/{eventId} finished: {updated.slug}")
+    _log.info(f"Successfully updated event '{eventId}' (new slug: '{updated.slug}')")
     return updated
 
 
 # TODO: update this to check user who created the event
-@api_router.delete("/{eventId}", status_code=status.HTTP_204_NO_CONTENT)
+@api_router.delete("/{eventId}")
 async def delete_event(
     eventId: str,
+    event: Annotated[models.Event, Depends(with_event)],
     _user: Annotated[
         dict[str, str], Security(get_current_user, scopes=["admin", "event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Delete an event, Admin only"""
-    stmt = (
-        delete(models.Event)
-        .where(models.Event.slug == eventId)
-        .returning(models.Event.name)
-    )
-    result = await db.execute(stmt)
-    event_name = result.scalar()
-    if event_name is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{eventId} not found",
-        )
+    _log.info(f"User attempting to delete event '{eventId}'")
 
-    _log.info(f"Deleted {event_name} at {eventId}")
-
+    await db.delete(event)
     await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    _log.info(f"Successfully deleted event '{eventId}'")

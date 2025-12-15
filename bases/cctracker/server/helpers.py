@@ -12,7 +12,8 @@ log = get_logger(__name__)
 
 async def with_event(eventId: str, db: Annotated[AsyncSession, Depends(with_db)]) -> models.Event:
     stmt = select(models.Event).where(models.Event.slug == eventId).options(
-        selectinload(models.Event.seats),
+        selectinload(models.Event.open_times),
+        selectinload(models.Event.seats).selectinload(models.Seat.assignments),
         selectinload(models.Event.artists),
         selectinload(models.Event.assignments)
     )

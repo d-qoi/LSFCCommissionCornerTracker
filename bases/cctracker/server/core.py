@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from cctracker.server.config import config
-from cctracker.server.auth import api_router as auth_router
+from cctracker.server.api.auth import api_router as auth_router
 from cctracker.server.api.events import api_router as event_router
 from cctracker.server.api.artist import api_router as artist_router
 from cctracker.server.api.event_artist import api_router as ea_router

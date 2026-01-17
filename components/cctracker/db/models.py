@@ -295,15 +295,14 @@ class UserData(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String())
 
-    # single-owner inverse (matches Event.owner_user_id)
     owned_events: Mapped[list["Event"]] = relationship(
         "Event",
         back_populates="owner",
         foreign_keys="Event.owner_user_id",
     )
 
-    # editors many-to-many
     editable_events: Mapped[list["Event"]] = relationship(
         "Event",
         secondary="event_editors",
@@ -311,7 +310,6 @@ class UserData(Base):
         passive_deletes=True,
     )
 
-    # 1:1 (nullable) profile-ish data
     artist_data: Mapped["UserArtistData | None"] = relationship(
         back_populates="user",
         uselist=False,
@@ -325,10 +323,9 @@ class UserArtistData(Base):
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,      # enforces 1:1
+        primary_key=True,  # enforces 1:1
     )
     user: Mapped["UserData"] = relationship(back_populates="artist_data")
-
 
     name: Mapped[str] = mapped_column(String(80))
     imageUrl: Mapped[str] = mapped_column(String(), default="unknown_pfp.png")

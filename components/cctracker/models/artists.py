@@ -17,7 +17,7 @@ class Artist(BaseModel):
 class ArtistCustomizableDetails(BaseModel):
     name: str
     details: str
-    eventId: str
+    eventId: str | None
     profileUrl: HttpUrl
     commissionsOpen: bool
     commissionsRemaining: PositiveInt

@@ -11,15 +11,10 @@ from cctracker.log import get_logger
 from cctracker.models.artists import ArtistSummary
 from cctracker.models.events import EventDetails, EventList, NewEvent, OpenTimes
 from cctracker.models.errors import StandardError, StandardErrorTypes
-from cctracker.server.helpers import with_event
-from cctracker.server.auth import get_current_user
+from cctracker.server.helpers import CurrentUser, with_event
+
 
 _log = get_logger(__name__)
-
-_log.debug("auth debug")
-_log.info("auth info")
-_log.warning("auth warning")
-_log.error("auth error")
 
 api_router = APIRouter(prefix="/event", tags=["event operations"])
 
@@ -91,7 +86,7 @@ async def create_event(
     newEventDetails: NewEvent,
     response: Response,
     _user: Annotated[
-        dict[str, str], Security(get_current_user, scopes=["event:create"])
+        models.UserData | None, Security(CurrentUser, scopes=["event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> StandardError | EventDetails:
@@ -260,7 +255,7 @@ async def update_event(
     response: Response,
     event: Annotated[models.Event, Depends(with_event)],
     _user: Annotated[
-        dict[str, str], Security(get_current_user, scopes=["event:create"])
+        models.UserData | None, Security(CurrentUser, scopes=["event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> EventDetails | StandardError:
@@ -348,7 +343,7 @@ async def delete_event(
     eventId: str,
     event: Annotated[models.Event, Depends(with_event)],
     _user: Annotated[
-        dict[str, str], Security(get_current_user, scopes=["admin", "event:create"])
+        models.UserData | None, Security(CurrentUser, scopes=["admin", "event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ):

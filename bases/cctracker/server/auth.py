@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from functools import lru_cache
@@ -14,7 +15,7 @@ from cctracker.log import get_logger
 
 _log = get_logger(__name__)
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 keycloak_openid = KeycloakOpenID(
     server_url=str(config.keycloak_server),
@@ -138,89 +139,54 @@ def decode_jwt(token: str) -> dict[str, str]:
     return payload
 
 
-async def get_current_user(
-    wanted_scopes: SecurityScopes,
-    token: Annotated[HTTPAuthorizationCredentials, Depends(security)],
-):
-    _log.debug(f"Getting current user, wanted scopes: {wanted_scopes.scopes}")
-    payload = decode_jwt(token.credentials)
-    _log.debug(f"JWT payload: {payload}")
-    username = payload.get("sub", "unknown")
-
-    if wanted_scopes.scopes:
-        token_scopes = payload.get("scopes", "").split()
-        _log.debug(f"User '{username}' requesting access with scopes: {token_scopes}, ")
-        _log.debug(f"required: {wanted_scopes.scopes}")
-        for scope in token_scopes:
-            if scope in wanted_scopes.scopes:
-                _log.debug(f"User '{username}' authorized with scope '{scope}'")
-                return payload
-        _log.warning(
-            f"User '{username}' denied: missing required scopes {wanted_scopes.scope_str}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Missing Permissions: {wanted_scopes.scope_str}",
-        )
-
-    _log.debug(f"User '{username}' authenticated (no specific scopes required)")
-    return payload
+@dataclass(frozen=True, slots=True)
+class Principal:
+    sub: str
+    scopes: set[str]
+    claims: dict[str, Any]
+    token: str | None = None
 
 
-# Auth Routes
+@dataclass(frozen=True, slots=True)
+class CurrentPrincipal:
+    optional: bool = False
+    include_token: bool = False
 
-api_router = APIRouter(prefix="/auth", tags=["auth"])
+    async def __call__(
+        self,
+        wanted_scopes: SecurityScopes,
+        token: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    ) -> Principal | None:
+        if token is None:
+            if self.optional:
+                return None
+            raise HTTPException(status_code=401, detail="Not authenticated")
 
-
-@api_router.get("/config")
-async def get_keycloak_config() -> AuthConfig:
-    """Returns the Keycloak config for the frontend, or any other services that needs it."""
-    _log.debug("Auth config requested")
-    return AuthConfig()
-
-
-@api_router.post("/verify")
-async def verify_token(
-    token: Annotated[HTTPAuthorizationCredentials, Depends(security)],
-):
-    """Verify JWT token and return the results"""
-    _log.debug("Token verification requested")
-
-    if config.dev_mode:
+        token_str = token.credentials
         try:
-            token_info = decode_dev_jwt(token.credentials)
-            _log.info(f"Dev token verified for user: {token_info.get('sub')}")
-            return VerifyResults(user=token_info)
-        except HTTPException:
-            _log.debug("Dev token verification failed, trying Keycloak")
-            pass
-    try:
-        # Verify token with Keycloak
-        _log.debug("Verifying token with Keycloak introspection")
-        token_info: dict[str, str] = keycloak_openid.introspect(token.credentials)
-        if not token_info.get("active"):
-            _log.warning("Token verification failed: token not active")
+            claims = decode_jwt(token_str)
+        except Exception:
+            if self.optional:
+                return None
             raise HTTPException(status_code=401, detail="Invalid token")
-        _log.info(
-            f"Token verified via Keycloak for user: {token_info.get('sub', 'unknown')}"
+
+        sub = claims.get("sub", "unknown")
+        token_scopes = set(claims.get("scopes", "").split())
+
+        if wanted_scopes.scopes:
+            required = set(wanted_scopes.scopes)
+            # ALL required scopes:
+            if not required.issubset(token_scopes):
+                if self.optional:
+                    return None
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Missing Permissions: {wanted_scopes.scope_str}",
+                )
+
+        return Principal(
+            sub=sub,
+            scopes=token_scopes,
+            claims=claims,
+            token=(token_str if self.include_token else None),
         )
-        return VerifyResults(user=token_info)
-    except HTTPException:
-        raise
-    except Exception as e:
-        _log.error(f"Token verification failed with exception: {e}")
-        raise HTTPException(status_code=401, detail="Token verification failed")
-
-
-@api_router.post("/dev-token", response_model=DevTokenResponse)
-async def generate_dev_token(token_details: DevTokenRequest):
-    """Generate a development token (only available in dev_mode)"""
-    if not config.dev_mode:
-        _log.warning("Dev token generation attempted but dev_mode is disabled")
-        raise HTTPException(status_code=404, detail="Not found")
-
-    _log.info(f"Generating dev token for user '{token_details.username}' ")
-    _log.info(f"with scopes: {token_details.scopes}")
-
-    token = create_dev_token(token_details.username, token_details.scopes)
-    return DevTokenResponse(access_token=token)

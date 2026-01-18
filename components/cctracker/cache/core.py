@@ -1,12 +1,12 @@
 from enum import StrEnum, auto
 from fastapi import HTTPException, status
-import valkey.asyncio as valkey
+from valkey.asyncio import Valkey
 
 from cctracker.log import get_logger
 
 _log = get_logger(__name__)
 
-_client: valkey.Valkey | None = None
+_client: Valkey | None = None
 
 class ArtistSeatStatus(StrEnum):
     pending = auto()
@@ -15,7 +15,7 @@ class ArtistSeatStatus(StrEnum):
     inactive = auto()
 
 
-def setup_valkey(conn_string: str) -> valkey.Valkey:
+def setup_valkey(conn_string: str) -> Valkey:
     global _client
 
     if _client:
@@ -24,12 +24,12 @@ def setup_valkey(conn_string: str) -> valkey.Valkey:
         )
         return _client
 
-    _client = valkey.Valkey.from_url(conn_string)
+    _client = Valkey.from_url(conn_string)
 
     return _client
 
 
-def with_vk() -> valkey.Valkey:
+def with_vk() -> Valkey:
     if _client is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

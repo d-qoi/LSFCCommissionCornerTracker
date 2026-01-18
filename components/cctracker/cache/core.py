@@ -1,3 +1,4 @@
+from enum import StrEnum, auto
 from fastapi import HTTPException, status
 import valkey.asyncio as valkey
 
@@ -6,6 +7,12 @@ from cctracker.log import get_logger
 _log = get_logger(__name__)
 
 _client: valkey.Valkey | None = None
+
+class ArtistSeatStatus(StrEnum):
+    pending = auto()
+    pending_creation = auto()
+    active = auto()
+    inactive = auto()
 
 
 def setup_valkey(conn_string: str) -> valkey.Valkey:

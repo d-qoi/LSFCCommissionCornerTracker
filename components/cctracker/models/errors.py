@@ -7,6 +7,7 @@ class StandardErrorTypes(StrEnum):
     INVALID_START_TIME = auto()
     EVENT_STARTED = auto()
     SEAT_TAKEN = auto()
+    INVALID_SEAT = auto()
 
 class StandardError(BaseModel):
     code: int

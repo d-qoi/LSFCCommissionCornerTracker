@@ -209,6 +209,9 @@ async def get_event_artists(
     event: Annotated[models.Event, Depends(with_event)],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> list[ArtistSummary]:
+    """
+    Returns a list of all artists associated with the event.
+    """
     _log.debug(f"Fetching artists for event '{eventId}' (include_unseated={all})")
 
     artist_list: list[ArtistSummary] = []

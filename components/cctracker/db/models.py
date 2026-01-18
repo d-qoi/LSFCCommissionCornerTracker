@@ -259,6 +259,7 @@ class SeatAssignment(Base):
     ended_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+        default=None
     )
 
     event: Mapped["Event"] = relationship(back_populates="assignments")

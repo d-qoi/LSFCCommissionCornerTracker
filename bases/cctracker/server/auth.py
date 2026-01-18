@@ -3,12 +3,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from functools import lru_cache
 
-from fastapi import Depends, HTTPException, APIRouter, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, SecurityScopes, HTTPBearer
 import jwt
 from itsdangerous.url_safe import URLSafeSerializer
 from keycloak import KeycloakOpenID
-from pydantic import BaseModel
+from pydantic import UUID4, BaseModel
 
 from cctracker.server.config import config
 from cctracker.log import get_logger
@@ -25,6 +25,12 @@ keycloak_openid = KeycloakOpenID(
 )
 
 dangerous_cookies = URLSafeSerializer(config.signing_key)
+
+
+class EventArtistToken(BaseModel):
+    event_id: str
+    artist_id: str
+    uuid: UUID4
 
 
 class VerifyResults(BaseModel):
@@ -87,12 +93,12 @@ def decode_dev_jwt(token: str) -> dict[str, str]:
         )
 
 
-def sign(data: dict[str, str], salt: str | None = None):
+def sign(data: EventArtistToken, salt: str | None = None):
     return dangerous_cookies.dumps(data, salt)
 
 
-def verify(data: str, salt: str | None = None) -> dict[str, str]:
-    return dangerous_cookies.loads(data, salt=salt)
+def verify(data: str, salt: str | None = None) -> EventArtistToken:
+    return EventArtistToken.model_validate(dangerous_cookies.loads(data, salt=salt))
 
 
 @lru_cache(maxsize=1)

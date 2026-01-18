@@ -43,7 +43,11 @@ class CurrentUser:
             raise HTTPException(status_code=401, detail="Not authenticated")
 
         # example: lookup by Keycloak subject in `UserData.sub`
-        result = await db.execute(select(models.UserData).where(models.UserData.username == principal.sub))
+        result = await db.execute(select(models.UserData).where(models.UserData.username == principal.sub).options(
+            selectinload(models.UserData.owned_events),
+            selectinload(models.UserData.editable_events),
+            selectinload(models.UserData.artist_data)
+        ))
         user = result.scalar_one_or_none()
 
         if user is None:

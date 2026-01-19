@@ -12,10 +12,10 @@ from cctracker.cache.core import ArtistSeatStatus
 from cctracker.db import with_db, models
 from cctracker.cache import with_vk
 from cctracker.log import get_logger
-from cctracker.models.artists import RequestNewArtist
+from cctracker.models.artists import ArtistCustomizableDetails, RequestNewArtist
 from cctracker.models.errors import StandardError, StandardErrorTypes
 from cctracker.server.auth import EventArtistToken, sign as dc_sign, verify as dc_verify
-from cctracker.server.helpers import CurrentUser
+from cctracker.server.helpers import CurrentUser, require_event_editor, with_event
 
 log = get_logger(__name__)
 
@@ -28,9 +28,10 @@ class EventArtistTokenResponse(BaseModel):
 
 @api_router.post("/{eventId}/artist/new")
 async def create_new_artist(
-    eventId: str,
+    _eventId: str,
     details: RequestNewArtist,
     response: Response,
+    event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
     cache: Annotated[Valkey, Depends(with_vk)],
@@ -40,27 +41,13 @@ async def create_new_artist(
     The artist will be assigned a seat, as soon as the token is validated at /{eventId}/artist/claim
     """
 
-    log.info(f"{eventId}/artist/new_artist called by {user_data.username}")
+    log.info(f"{event.slug}/artist/new_artist called by {user_data.username}")
     log.debug(f"{details.model_dump()}")
-    event_stmt = (
-        select(models.Event)
-        .where(models.Event.slug == eventId)
-        .options(
-            selectinload(models.Event.seats), selectinload(models.Event.assignments)
-        )
-    )
-    event = await db.scalar(event_stmt)
-
-    if event is None:
-        log.debug("Event doesn't exist")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"{eventId} not found"
-        )
 
     if event.slug not in [
         editable_event.slug for editable_event in user_data.editable_events
     ]:
-        log.debug(f"{user_data.username} can not edit {eventId}")
+        log.debug(f"{user_data.username} can not edit {event.slug}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="You do not have permission to edit this event.",
@@ -121,24 +108,25 @@ async def create_new_artist(
     log.debug(f"new artist token: {event_artist_token}")
 
     _ = await cache.hset(
-        f"{eventId}:{details.slug}",
+        f"{event.slug}:{details.slug}",
         mapping={
             "status": ArtistSeatStatus.pending_creation,
             "seat": wanted_seat.seat_number,
             "token_uuid": event_artist_token.uuid,
+            "locked": "0",
         },
     )
 
     log.debug(f"Returning token, pending artist acceptance.")
 
-    return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=eventId))
+    return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=event.slug))
 
 
 @api_router.get("/{eventId}/artist/token/{artistId}")
 async def recreate_artist_token(
-    eventId: str,
     artistId: str,
     response: Response,
+    event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
     cache: Annotated[Valkey, Depends(with_vk)],
@@ -146,25 +134,7 @@ async def recreate_artist_token(
     """
     Recreate a token for an existing artist.
     """
-    log.info(f"{eventId}/tokens/{artistId} called by {user_data.username}")
-
-    event_stmt = select(models.Event).where(models.Event.slug == eventId)
-    event = await db.scalar(event_stmt)
-
-    if event is None:
-        log.debug("Event doesn't exist")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"{eventId} not found"
-        )
-
-    if event.slug not in [
-        editable_event.slug for editable_event in user_data.editable_events
-    ]:
-        log.debug(f"{user_data.username} can not edit {eventId}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="You do not have permission to edit this event.",
-        )
+    log.info(f"{event.slug}/tokens/{artistId} called by {user_data.username}")
 
     artist_stmt = select(models.Artist).where(
         (models.Artist.slug == artistId) & (models.Artist.event_id == event.id)
@@ -178,26 +148,27 @@ async def recreate_artist_token(
         )
 
     event_artist_token = EventArtistToken(
-        event_id=eventId, artist_id=artistId, uuid=uuid4()
+        event_id=event.slug, artist_id=artistId, uuid=uuid4()
     )
 
     log.debug(f"Recreated artist token: {event_artist_token}")
 
     _ = await cache.hset(
-        f"{eventId}:{artistId}",
+        f"{event.slug}:{artistId}",
         mapping={"token_uuid": event_artist_token.uuid},
     )
 
-    log.info(f"Token recreated for artist {artistId} in {eventId}")
+    log.info(f"Token recreated for artist {artistId} in {event.slug}")
 
-    return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=eventId))
+    return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=event.slug))
 
 
 @api_router.get("/{eventId}/artist/claim")
 async def claim_artist_seat(
-    eventId: str,
+    _eventId: str,
     token: str,
     response: Response,
+    event: Annotated[models.Event, Depends(with_event)],
     db: Annotated[AsyncSession, Depends(with_db)],
     cache: Annotated[Valkey, Depends(with_vk)],
 ):
@@ -205,10 +176,10 @@ async def claim_artist_seat(
     Artist claims their seat using the token provided by event organizer.
     Sets the token as a cookie for future requests.
     """
-    log.info(f"{eventId}/artist/claim called with token")
+    log.info(f"{event.slug}/artist/claim called with token")
 
     try:
-        token_data = dc_verify(token, salt=eventId)
+        token_data = dc_verify(token, salt=event.slug)
     except Exception as e:
         log.warning(f"Invalid token signature: {e}")
         raise HTTPException(
@@ -216,7 +187,7 @@ async def claim_artist_seat(
         )
 
     artist_id = token_data.artist_id
-    cache_key = f"{eventId}:{artist_id}"
+    cache_key = f"{event.slug}:{artist_id}"
 
     cached_data = await cache.hgetall(cache_key)
 
@@ -231,18 +202,6 @@ async def claim_artist_seat(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been invalidated",
-        )
-
-    event_stmt = (
-        select(models.Event)
-        .where(models.Event.slug == eventId)
-        .options(selectinload(models.Event.seats))
-    )
-    event = await db.scalar(event_stmt)
-
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Event {eventId} not found"
         )
 
     artist_stmt = select(models.Artist).where(
@@ -278,7 +237,7 @@ async def claim_artist_seat(
         )
         db.add(assignment)
         await db.commit()
-        log.info(f"Artist {artist_id} claimed seat {seat_number} in {eventId}")
+        log.info(f"Artist {artist_id} claimed seat {seat_number} in {event.slug}")
 
     await cache.hset(cache_key, "status", ArtistSeatStatus.active)
 
@@ -291,4 +250,171 @@ async def claim_artist_seat(
     )
 
     log.info(f"Token set as cookie for artist {artist_id}")
+    return True
 
+
+class ArtistEventLock(BaseModel):
+    locked: bool
+
+
+@api_router.post("/event/{eventId}/artist/{artistId}/lock")
+async def set_artist_locked_for_event(
+    _eventId: str,
+    artistId: str,
+    status: ArtistEventLock,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+    cache: Annotated[Valkey, Depends(with_vk)],
+):
+
+    cache_key = f"{event.slug}:{artistId}"
+
+    cached_data = await cache.hget(cache_key, "locked")
+
+    if cached_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Artist not in cache"
+        )
+
+    _ = await cache.hset(cache_key, "locked", int(status.locked))
+
+    return status
+
+
+@api_router.post("/event/{eventId}/artist/{artistId}/lock")
+async def get_artist_locked_status_for_event(
+    _eventId: str,
+    artistId: str,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+    cache: Annotated[Valkey, Depends(with_vk)],
+):
+
+    cache_key = f"{event.slug}:{artistId}"
+
+    cached_data = await cache.hget(cache_key, "locked")
+
+    if cached_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Artist not in cache"
+        )
+
+    return ArtistEventLock(locked=bool(int(cached_data)))
+
+
+@api_router.patch("/{eventId}/artist/{artistId}")
+async def update_artist_details(
+    eventId: str,
+    artistId: str,
+    details: ArtistCustomizableDetails,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+):
+    """
+    Event editors can update artist profile details.
+    """
+    log.info(f"{event.slug}/artist/{artistId} update called by {user_data.username}")
+
+    artist_stmt = select(models.Artist).where(
+        (models.Artist.slug == artistId) & (models.Artist.event_id == event.id)
+    )
+    artist = await db.scalar(artist_stmt)
+
+    if not artist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artist {artistId} not found",
+        )
+
+    artist.name = details.name
+    artist.details = details.details
+    artist.profileUrl = str(details.profileUrl)
+    artist.coms_open = details.commissionsOpen
+    artist.coms_remaining = details.commissionsRemaining
+
+    await db.commit()
+
+    log.info(f"Artist {artistId} updated by {user_data.username}")
+
+
+@api_router.delete("/{eventId}/artist/{artistId}/seat")
+async def remove_artist_from_seat(
+    artistId: str,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+    cache: Annotated[Valkey, Depends(with_vk)],
+):
+    """
+    Remove artist from their current seat but keep them in the event.
+    Ends the current seat assignment.
+    """
+    log.info(
+        f"{event.slug}/artist/{artistId}/seat delete called by {user_data.username}"
+    )
+
+    artist_stmt = (
+        select(models.Artist)
+        .where((models.Artist.slug == artistId) & (models.Artist.event_id == event.id))
+        .options(selectinload(models.Artist.assignments))
+    )
+    artist = await db.scalar(artist_stmt)
+
+    if not artist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artist {artistId} not found",
+        )
+
+    active_assignment = next(
+        (a for a in artist.assignments if a.ended_at is None), None
+    )
+
+    if not active_assignment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artist has no active seat assignment",
+        )
+
+    active_assignment.ended_at = models.utcnow()
+    await db.commit()
+
+    await cache.hset(f"{event.slug}:{artistId}", "status", ArtistSeatStatus.inactive)
+
+    log.info(f"Artist {artistId} removed from seat by {user_data.username}")
+
+
+@api_router.delete("/{eventId}/artist/{artistId}")
+async def remove_artist_from_event(
+    artistId: str,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+    cache: Annotated[Valkey, Depends(with_vk)],
+):
+    """
+    Remove artist completely from the event.
+    Deletes the artist record and all associated seat assignments.
+    """
+    log.info(f"{event.slug}/artist/{artistId} delete called by {user_data.username}")
+
+    artist_stmt = select(models.Artist).where(
+        (models.Artist.slug == artistId) & (models.Artist.event_id == event.id)
+    )
+    artist = await db.scalar(artist_stmt)
+
+    if not artist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artist {artistId} not found",
+        )
+
+    await db.delete(artist)
+    await db.commit()
+
+    await cache.delete(f"{event.slug}:{artistId}")
+
+    log.info(f"Artist {artistId} removed from event by {user_data.username}")

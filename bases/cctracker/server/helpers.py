@@ -13,19 +13,26 @@ from cctracker.server.auth import CurrentPrincipal, Principal
 
 log = get_logger(__name__)
 
-async def with_event(eventId: str, db: Annotated[AsyncSession, Depends(with_db)]) -> models.Event:
-    stmt = select(models.Event).where(models.Event.slug == eventId).options(
-        selectinload(models.Event.open_times),
-        selectinload(models.Event.seats).selectinload(models.Seat.assignments),
-        selectinload(models.Event.artists),
-        selectinload(models.Event.assignments)
+
+async def with_event(
+    eventId: str, db: Annotated[AsyncSession, Depends(with_db)]
+) -> models.Event:
+    stmt = (
+        select(models.Event)
+        .where(models.Event.slug == eventId)
+        .options(
+            selectinload(models.Event.open_times),
+            selectinload(models.Event.seats).selectinload(models.Seat.assignments),
+            selectinload(models.Event.artists),
+            selectinload(models.Event.assignments),
+        )
     )
     event = await db.scalar(stmt)
     if event is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"{eventId} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{eventId} not found"
+        )
     return event
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +41,9 @@ class CurrentUser:
 
     async def __call__(
         self,
-        principal: Annotated[Principal | None, Depends(CurrentPrincipal(optional=True))],
+        principal: Annotated[
+            Principal | None, Depends(CurrentPrincipal(optional=True))
+        ],
         db: Annotated[AsyncSession, Depends(with_db)],
     ):
         if principal is None:
@@ -43,11 +52,15 @@ class CurrentUser:
             raise HTTPException(status_code=401, detail="Not authenticated")
 
         # example: lookup by Keycloak subject in `UserData.sub`
-        result = await db.execute(select(models.UserData).where(models.UserData.username == principal.sub).options(
-            selectinload(models.UserData.owned_events),
-            selectinload(models.UserData.editable_events),
-            selectinload(models.UserData.artist_data)
-        ))
+        result = await db.execute(
+            select(models.UserData)
+            .where(models.UserData.username == principal.sub)
+            .options(
+                selectinload(models.UserData.owned_events),
+                selectinload(models.UserData.editable_events),
+                selectinload(models.UserData.artist_data),
+            )
+        )
         user = result.scalar_one_or_none()
 
         if user is None:
@@ -62,3 +75,22 @@ class CurrentUser:
 
 
 OptionalUser = CurrentUser(optional=True)
+
+
+async def require_event_editor(
+    event: Annotated[models.Event, Depends(with_event)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+) -> models.Event:
+    """
+    Dependency that verifies user can edit the event and returns the event.
+    Raises 404 if event not found, 401 if user lacks permission.
+    """
+
+    if event.slug not in [e.slug for e in user_data.editable_events]:
+        log.debug(f"{user_data.username} cannot edit {event.slug}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="You do not have permission to edit this event.",
+        )
+
+    return event

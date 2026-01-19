@@ -8,8 +8,11 @@ class StandardErrorTypes(StrEnum):
     EVENT_STARTED = auto()
     SEAT_TAKEN = auto()
     INVALID_SEAT = auto()
+    ARTIST_NOT_FOUND = auto()
+    NO_ACTIVE_SEAT = auto()
 
 class StandardError(BaseModel):
+    tag: str = 'Standard Error'
     code: int
     type: StandardErrorTypes
     details: dict[str, str] = {}

@@ -309,6 +309,7 @@ async def update_artist_details(
     eventId: str,
     artistId: str,
     details: ArtistCustomizableDetails,
+    response: Response,
     event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
@@ -324,9 +325,11 @@ async def update_artist_details(
     artist = await db.scalar(artist_stmt)
 
     if not artist:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Artist {artistId} not found",
+        log.debug(f"Artist {artistId} not found")
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return StandardError(
+            code=status.HTTP_404_NOT_FOUND,
+            type=StandardErrorTypes.ARTIST_NOT_FOUND,
         )
 
     artist.name = details.name
@@ -343,6 +346,7 @@ async def update_artist_details(
 @api_router.delete("/{eventId}/artist/{artistId}/seat")
 async def remove_artist_from_seat(
     artistId: str,
+    response: Response,
     event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
@@ -364,9 +368,11 @@ async def remove_artist_from_seat(
     artist = await db.scalar(artist_stmt)
 
     if not artist:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Artist {artistId} not found",
+        log.debug(f"Artist {artistId} not found")
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return StandardError(
+            code=status.HTTP_404_NOT_FOUND,
+            type=StandardErrorTypes.ARTIST_NOT_FOUND,
         )
 
     active_assignment = next(
@@ -374,9 +380,11 @@ async def remove_artist_from_seat(
     )
 
     if not active_assignment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Artist has no active seat assignment",
+        log.debug(f"Artist {artistId} has no active seat")
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return StandardError(
+            code=status.HTTP_404_NOT_FOUND,
+            type=StandardErrorTypes.NO_ACTIVE_SEAT,
         )
 
     active_assignment.ended_at = models.utcnow()
@@ -390,6 +398,7 @@ async def remove_artist_from_seat(
 @api_router.delete("/{eventId}/artist/{artistId}")
 async def remove_artist_from_event(
     artistId: str,
+    response: Response,
     event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
@@ -407,9 +416,11 @@ async def remove_artist_from_event(
     artist = await db.scalar(artist_stmt)
 
     if not artist:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Artist {artistId} not found",
+        log.debug(f"Artist {artistId} not found")
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return StandardError(
+            code=status.HTTP_404_NOT_FOUND,
+            type=StandardErrorTypes.ARTIST_NOT_FOUND,
         )
 
     await db.delete(artist)

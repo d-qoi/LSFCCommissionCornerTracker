@@ -28,7 +28,6 @@ class EventArtistTokenResponse(BaseModel):
 
 @api_router.post("/{eventId}/artist/new")
 async def create_new_artist(
-    _eventId: str,
     details: RequestNewArtist,
     response: Response,
     event: Annotated[models.Event, Depends(require_event_editor)],
@@ -125,7 +124,6 @@ async def create_new_artist(
 @api_router.get("/{eventId}/artist/token/{artistId}")
 async def recreate_artist_token(
     artistId: str,
-    response: Response,
     event: Annotated[models.Event, Depends(require_event_editor)],
     user_data: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
@@ -165,7 +163,6 @@ async def recreate_artist_token(
 
 @api_router.get("/{eventId}/artist/claim")
 async def claim_artist_seat(
-    _eventId: str,
     token: str,
     response: Response,
     event: Annotated[models.Event, Depends(with_event)],
@@ -259,12 +256,10 @@ class ArtistEventLock(BaseModel):
 
 @api_router.post("/event/{eventId}/artist/{artistId}/lock")
 async def set_artist_locked_for_event(
-    _eventId: str,
     artistId: str,
-    status: ArtistEventLock,
+    lockStatus: ArtistEventLock,
     event: Annotated[models.Event, Depends(require_event_editor)],
-    user_data: Annotated[models.UserData, Depends(CurrentUser)],
-    db: Annotated[AsyncSession, Depends(with_db)],
+    _user_data: Annotated[models.UserData, Depends(CurrentUser)],
     cache: Annotated[Valkey, Depends(with_vk)],
 ):
 
@@ -277,9 +272,9 @@ async def set_artist_locked_for_event(
             status_code=status.HTTP_404_NOT_FOUND, detail="Artist not in cache"
         )
 
-    _ = await cache.hset(cache_key, "locked", int(status.locked))
+    _ = await cache.hset(cache_key, "locked", int(lockStatus.locked))
 
-    return status
+    return lockStatus
 
 
 @api_router.post("/event/{eventId}/artist/{artistId}/lock")
@@ -287,8 +282,7 @@ async def get_artist_locked_status_for_event(
     _eventId: str,
     artistId: str,
     event: Annotated[models.Event, Depends(require_event_editor)],
-    user_data: Annotated[models.UserData, Depends(CurrentUser)],
-    db: Annotated[AsyncSession, Depends(with_db)],
+    _user_data: Annotated[models.UserData, Depends(CurrentUser)],
     cache: Annotated[Valkey, Depends(with_vk)],
 ):
 
@@ -341,6 +335,85 @@ async def update_artist_details(
     await db.commit()
 
     log.info(f"Artist {artistId} updated by {user_data.username}")
+
+
+class AssignSeat(BaseModel):
+    seat: int
+
+
+@api_router.put("/{eventId}/artist/{artistId}/seat")
+async def assign_artist_to_seat(
+    artistId: str,
+    seat_request: AssignSeat,
+    response: Response,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user_data: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+    cache: Annotated[Valkey, Depends(with_vk)],
+):
+    """
+    Assign an existing artist to a seat.
+    Ends any current assignment and creates a new one.
+    """
+    log.info(f"{event.slug}/artist/{artistId}/seat PUT called by {user_data.username}")
+
+    artist_stmt = (
+        select(models.Artist)
+        .where((models.Artist.slug == artistId) & (models.Artist.event_id == event.id))
+        .options(selectinload(models.Artist.assignments))
+    )
+    artist = await db.scalar(artist_stmt)
+
+    if not artist:
+        log.debug(f"Artist {artistId} not found")
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return StandardError(
+            code=status.HTTP_404_NOT_FOUND,
+            type=StandardErrorTypes.ARTIST_NOT_FOUND,
+        )
+
+    seat = next((s for s in event.seats if s.seat_number == seat_request.seat), None)
+
+    if not seat:
+        log.debug(f"Seat {seat_request.seat} not found")
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return StandardError(
+            code=status.HTTP_400_BAD_REQUEST,
+            type=StandardErrorTypes.INVALID_SEAT,
+        )
+
+    if seat.current_artist and seat.current_artist.id != artist.id:
+        log.debug(f"Seat {seat_request.seat} already occupied")
+        response.status_code = status.HTTP_409_CONFLICT
+        return StandardError(
+            code=status.HTTP_409_CONFLICT,
+            type=StandardErrorTypes.SEAT_TAKEN,
+        )
+
+    # End current assignment if exists
+    active_assignment = next(
+        (a for a in artist.assignments if a.ended_at is None), None
+    )
+    if active_assignment:
+        active_assignment.ended_at = models.utcnow()
+
+    # Create new assignment
+    new_assignment = models.SeatAssignment(
+        event_id=event.id,
+        seat_id=seat.id,
+        artist_id=artist.id,
+    )
+    db.add(new_assignment)
+    await db.commit()
+
+    await cache.hset(
+        f"{event.slug}:{artistId}",
+        mapping={"status": ArtistSeatStatus.active, "seat": seat_request.seat},
+    )
+
+    log.info(
+        f"Artist {artistId} assigned to seat {seat_request.seat} by {user_data.username}"
+    )
 
 
 @api_router.delete("/{eventId}/artist/{artistId}/seat")

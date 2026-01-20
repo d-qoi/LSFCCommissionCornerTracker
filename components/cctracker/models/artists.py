@@ -12,6 +12,7 @@ class Artist(BaseModel):
     commissionsRemaining: PositiveInt
     active: bool
     timeRemaining: PositiveInt | None
+    timeSinceLastAssignment: PositiveInt | None
 
 
 class ArtistCustomizableDetails(BaseModel):

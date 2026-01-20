@@ -122,7 +122,9 @@ async def create_new_artist(
     return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=event.slug))
 
 
-@api_router.get("/{eventId}/artist/token/{artistId}", dependencies=[Depends(expire_stale_seats)])
+@api_router.get(
+    "/{eventId}/artist/token/{artistId}", dependencies=[Depends(expire_stale_seats)]
+)
 async def recreate_artist_token(
     artistId: str,
     event: Annotated[models.Event, Depends(require_event_editor)],
@@ -255,9 +257,7 @@ class ArtistEventLock(BaseModel):
     locked: bool
 
 
-@api_router.post(
-    "/{eventId}/artist/{artistId}/lock"
-)
+@api_router.post("/{eventId}/artist/{artistId}/lock")
 async def set_artist_locked_for_event(
     artistId: str,
     lockStatus: ArtistEventLock,
@@ -280,9 +280,7 @@ async def set_artist_locked_for_event(
     return lockStatus
 
 
-@api_router.post(
-    "/{eventId}/artist/{artistId}/lock"
-)
+@api_router.post("/{eventId}/artist/{artistId}/lock")
 async def get_artist_locked_status_for_event(
     _eventId: str,
     artistId: str,
@@ -303,7 +301,9 @@ async def get_artist_locked_status_for_event(
     return ArtistEventLock(locked=bool(int(cached_data)))
 
 
-@api_router.patch("/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)])
+@api_router.patch(
+    "/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)]
+)
 async def update_artist_details(
     eventId: str,
     artistId: str,
@@ -344,9 +344,12 @@ async def update_artist_details(
 
 class AssignSeat(BaseModel):
     seat: int
+    force: bool = False
 
 
-@api_router.put("/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)])
+@api_router.put(
+    "/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)]
+)
 async def assign_artist_to_seat(
     artistId: str,
     seat_request: AssignSeat,
@@ -376,6 +379,31 @@ async def assign_artist_to_seat(
             code=status.HTTP_404_NOT_FOUND,
             type=StandardErrorTypes.ARTIST_NOT_FOUND,
         )
+
+    if artist.current_seat is not None:
+        log.debug("Artist currently assigned to seat, ignoring request to set new seat")
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return StandardError(
+            code=status.HTTP_400_BAD_REQUEST,
+            type=StandardErrorTypes.ARTIST_ALREADY_ASSIGNED,
+            details={"seat": artist.current_seat.seat_number},
+        )
+
+    dwellPeriod = artist.time_since_last_assignment
+    if dwellPeriod is not None and 0 <= dwellPeriod < event.dwellPeriod:
+        if not seat_request.force:
+            log.warning(f"Artist {artistId} still in dwell period: {dwellPeriod}s < {event.dwellPeriod}s")
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return StandardError(
+                code=status.HTTP_400_BAD_REQUEST,
+                type=StandardErrorTypes.DWELL_PERIOD,
+                details={
+                    "dwellPeriod": str(dwellPeriod),
+                    "required": str(event.dwellPeriod),
+                    "remaining": str(event.dwellPeriod - dwellPeriod)
+                },
+            )
+        log.info(f"Force override: allowing {artistId} despite dwell period")
 
     seat = next((s for s in event.seats if s.seat_number == seat_request.seat), None)
 
@@ -421,7 +449,9 @@ async def assign_artist_to_seat(
     )
 
 
-@api_router.delete("/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)])
+@api_router.delete(
+    "/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)]
+)
 async def remove_artist_from_seat(
     artistId: str,
     response: Response,
@@ -473,7 +503,9 @@ async def remove_artist_from_seat(
     log.info(f"Artist {artistId} removed from seat by {user_data.username}")
 
 
-@api_router.delete("/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)])
+@api_router.delete(
+    "/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)]
+)
 async def remove_artist_from_event(
     artistId: str,
     response: Response,

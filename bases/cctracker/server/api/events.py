@@ -92,8 +92,8 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)],
 async def create_event(
     newEventDetails: NewEvent,
     response: Response,
-    _user: Annotated[
-        models.UserData | None, Security(CurrentUser, scopes=["event:create"])
+    user: Annotated[
+        models.UserData, Security(CurrentUser, scopes=["event:create"])
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> StandardError | EventDetails:
@@ -119,12 +119,15 @@ async def create_event(
     new_event = models.Event(
         slug=newEventDetails.slug,
         name=newEventDetails.name,
-        createdBy=_user.username,
+        createdBy=user.username,
         hostedBy=newEventDetails.hostedBy,
         hostedByUrl=str(newEventDetails.hostedByUrl),
         seatDuration=newEventDetails.duration,
-        owner_user_id=_user.id,
+        dwellPeriod=newEventDetails.dwellPeriod,
+        owner_user_id=user.id,
     )
+
+    new_event.editors.append(user)
 
     _log.debug(f"New Event: {new_event}")
 
@@ -264,9 +267,9 @@ async def update_event(
     eventId: str,
     updatedEvent: NewEvent,
     response: Response,
-    event: Annotated[models.Event, Depends(with_event)],
-    _user: Annotated[
-        models.UserData | None, Security(CurrentUser, scopes=["event:create"])
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    user: Annotated[
+        models.UserData | None, Depends(CurrentUser)
     ],
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> EventDetails | StandardError:
@@ -351,7 +354,6 @@ async def update_event(
     return updated
 
 
-# TODO: update this to check user who created the event
 @api_router.delete("/{eventId}")
 async def delete_event(
     eventId: str,

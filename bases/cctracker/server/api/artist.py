@@ -72,6 +72,7 @@ async def get_artist(
         commissionsRemaining=artist.coms_remaining,
         active=bool(time_remaining),
         timeRemaining=artist.time_remaining,
+        timeSinceLastAssignment=artist.time_since_last_assignment
     )
 
 

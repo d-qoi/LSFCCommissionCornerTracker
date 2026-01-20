@@ -53,6 +53,7 @@ class NewEvent(BaseModel):
     hostedByUrl: HttpUrl
     seats: PositiveInt = Field(lt=101)
     duration: PositiveInt = Field(lt=3600 * 12)
+    dwellPeriod: PositiveInt
     openTimes: list[OpenTimes]
 
     @field_validator("openTimes")

@@ -38,6 +38,7 @@ class Event(Base):
     hostedBy: Mapped[str] = mapped_column(String(64))
     hostedByUrl: Mapped[str] = mapped_column(String(256))
     seatDuration: Mapped[int] = mapped_column(Integer())  # assumed minutes
+    dwellPeriod: Mapped[int] = mapped_column(Integer())
     forceClose: Mapped[bool] = mapped_column(Boolean(), default=False)
 
     open_times: Mapped[list["OpenTime"]] = relationship(

@@ -31,7 +31,7 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> Event
         selectinload(models.Event.open_times),
         selectinload(models.Event.seats).selectinload(models.Seat.assignments),
         selectinload(models.Event.artists),
-        selectinload(models.Event.assignments)
+        selectinload(models.Event.assignments),
     )
     _log.debug("Executing database query for all events")
     results = await db.scalars(stmt)
@@ -174,13 +174,12 @@ async def get_event(
 
     _log.debug(f"Fetching details for event '{eventId}'")
 
-    openTimes:list[OpenTimes] = []
+    openTimes: list[OpenTimes] = []
 
     for time in event.open_times:
-        openTimes.append(OpenTimes(
-            open_time=time.open_time,
-            close_time=time.close_time
-            ))
+        openTimes.append(
+            OpenTimes(open_time=time.open_time, close_time=time.close_time)
+        )
 
     event_details = EventDetails(
         name=event.name,
@@ -196,7 +195,9 @@ async def get_event(
         duration=event.seatDuration,
     )
 
-    _log.debug(f"Event '{eventId}': {event.seats_available}/{event.seat_count} seats available, ")
+    _log.debug(
+        f"Event '{eventId}': {event.seats_available}/{event.seat_count} seats available, "
+    )
     _log.debug(f"open={event.event_open}")
 
     return event_details
@@ -333,7 +334,10 @@ async def update_event(
         seatsAvailable=event.seat_count,
         open=event.event_open,
         duration=event.seatDuration,
-        openTimes=[OpenTimes(open_time=t.open_time, close_time=t.close_time) for t in event.open_times]
+        openTimes=[
+            OpenTimes(open_time=t.open_time, close_time=t.close_time)
+            for t in event.open_times
+        ],
     )
 
     _log.info(f"Successfully updated event '{eventId}' (new slug: '{updated.slug}')")
@@ -368,25 +372,27 @@ async def add_event_editor(
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Add an editor to the event"""
-    
+    _log.info(f"User {_user.username} adding editor {username} to event {eventId}")
+
     stmt = select(models.UserData).where(models.UserData.username == username)
     target_user = await db.scalar(stmt)
-    
+
     if not target_user:
+        _log.warning(f"User {username} not found when adding as editor to {eventId}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {username} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"User {username} not found"
         )
-    
+
     if target_user in event.editors:
+        _log.warning(f"{username} is already an editor of {eventId}")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{username} is already an editor"
+            detail=f"{username} is already an editor",
         )
-    
+
     event.editors.append(target_user)
     await db.commit()
-    
+
     _log.info(f"Added {username} as editor to {eventId}")
     return {"status": "added", "username": username}
 
@@ -400,25 +406,28 @@ async def remove_event_editor(
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Remove an editor from the event"""
-    
+    _log.info(f"User {_user.username} removing editor {username} from event {eventId}")
+
     stmt = select(models.UserData).where(models.UserData.username == username)
     target_user = await db.scalar(stmt)
-    
+
     if not target_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {username} not found"
+        _log.warning(
+            f"User {username} not found when removing as editor from {eventId}"
         )
-    
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"User {username} not found"
+        )
+
     if target_user not in event.editors:
+        _log.warning(f"{username} is not an editor of {eventId}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{username} is not an editor"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{username} is not an editor"
         )
-    
+
     event.editors.remove(target_user)
     await db.commit()
-    
+
     _log.info(f"Removed {username} as editor from {eventId}")
     return {"status": "removed", "username": username}
 
@@ -430,6 +439,10 @@ async def list_event_editors(
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> list[str]:
     """List all editors for the event"""
-    
+    _log.debug(f"Fetching editors for event {eventId}")
+
     editors = await event.awaitable_attrs.editors
-    return [editor.username for editor in editors]
+    editor_list = [editor.username for editor in editors]
+
+    _log.info(f"Returning {len(editor_list)} editors for event {eventId}")
+    return editor_list

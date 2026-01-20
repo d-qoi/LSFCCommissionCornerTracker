@@ -25,6 +25,7 @@ async def list_permission_requests(
     db: Annotated[AsyncSession, Depends(with_db)],
 ) -> list[PermissionRequestResponse]:
     """List all pending permission requests"""
+    log.info(f"Admin {_user.username} fetching permission requests")
 
     stmt = (
         select(models.PermissionRequest)
@@ -46,6 +47,7 @@ async def list_permission_requests(
             )
         )
 
+    log.info(f"Returning {len(requests)} permission requests")
     return requests
 
 
@@ -56,6 +58,7 @@ async def grant_permission(
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Grant permission and remove request (manual Keycloak grant required)"""
+    log.info(f"Admin {admin_user.username} granting permission to {details.username}")
 
     stmt = (
         select(models.PermissionRequest)
@@ -65,6 +68,7 @@ async def grant_permission(
     request = await db.scalar(stmt)
 
     if not request:
+        log.warning(f"Permission request not found for {details.username}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Permission request not found"
         )
@@ -90,6 +94,7 @@ async def deny_permission(
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Deny and delete permission request"""
+    log.info(f"Admin {admin_user.username} denying permission for {username}")
 
     stmt = (
         select(models.PermissionRequest)
@@ -99,6 +104,7 @@ async def deny_permission(
     request = await db.scalar(stmt)
 
     if not request:
+        log.warning(f"Permission request not found for {username}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Permission request not found"
         )

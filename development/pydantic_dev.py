@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta, tzinfo, timezone
+from enum import StrEnum, auto
 from zoneinfo import ZoneInfo, available_timezones
 from pydantic import BaseModel
 
@@ -32,3 +33,10 @@ new_event = NewEvent(
         OpenTimes(open_time=now + timedelta(days=4), close_time=now+timedelta(days=4,hours=8)),
     ]
 )
+
+class TestEnum(StrEnum):
+    t1 = auto()
+    t2 = auto()
+
+class TestModel2(BaseModel):
+    t1: TestEnum

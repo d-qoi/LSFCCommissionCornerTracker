@@ -1,3 +1,4 @@
+from fastapi import UploadFile
 from cctracker.log import get_logger
 
 import json
@@ -51,3 +52,14 @@ def setup_minio(
 
 async def with_bucket():
     return _client
+
+
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+

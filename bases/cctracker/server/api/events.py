@@ -11,7 +11,7 @@ from cctracker.log import get_logger
 from cctracker.models.artists import ArtistSummary
 from cctracker.models.events import EventDetails, EventList, NewEvent, OpenTimes
 from cctracker.models.errors import StandardError, StandardErrorTypes
-from cctracker.server.helpers import CurrentUser, with_event
+from cctracker.server.helpers import CurrentUser, with_event, require_event_editor
 
 
 _log = get_logger(__name__)
@@ -112,11 +112,11 @@ async def create_event(
     new_event = models.Event(
         slug=newEventDetails.slug,
         name=newEventDetails.name,
-        # TODO: Replace this with an actual username
-        createdBy="temp",
+        createdBy=_user.username,
         hostedBy=newEventDetails.hostedBy,
         hostedByUrl=str(newEventDetails.hostedByUrl),
         seatDuration=newEventDetails.duration,
+        owner_user_id=_user.id,
     )
 
     _log.debug(f"New Event: {new_event}")
@@ -357,3 +357,79 @@ async def delete_event(
     await db.commit()
 
     _log.info(f"Successfully deleted event '{eventId}'")
+
+
+@api_router.post("/{eventId}/editors")
+async def add_event_editor(
+    eventId: str,
+    username: str,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    _user: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+):
+    """Add an editor to the event"""
+    
+    stmt = select(models.UserData).where(models.UserData.username == username)
+    target_user = await db.scalar(stmt)
+    
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {username} not found"
+        )
+    
+    if target_user in event.editors:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{username} is already an editor"
+        )
+    
+    event.editors.append(target_user)
+    await db.commit()
+    
+    _log.info(f"Added {username} as editor to {eventId}")
+    return {"status": "added", "username": username}
+
+
+@api_router.delete("/{eventId}/editors/{username}")
+async def remove_event_editor(
+    eventId: str,
+    username: str,
+    event: Annotated[models.Event, Depends(require_event_editor)],
+    _user: Annotated[models.UserData, Depends(CurrentUser)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+):
+    """Remove an editor from the event"""
+    
+    stmt = select(models.UserData).where(models.UserData.username == username)
+    target_user = await db.scalar(stmt)
+    
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {username} not found"
+        )
+    
+    if target_user not in event.editors:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{username} is not an editor"
+        )
+    
+    event.editors.remove(target_user)
+    await db.commit()
+    
+    _log.info(f"Removed {username} as editor from {eventId}")
+    return {"status": "removed", "username": username}
+
+
+@api_router.get("/{eventId}/editors")
+async def list_event_editors(
+    eventId: str,
+    event: Annotated[models.Event, Depends(with_event)],
+    db: Annotated[AsyncSession, Depends(with_db)],
+) -> list[str]:
+    """List all editors for the event"""
+    
+    editors = await event.awaitable_attrs.editors
+    return [editor.username for editor in editors]

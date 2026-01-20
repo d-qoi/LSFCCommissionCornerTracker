@@ -23,12 +23,20 @@ class ArtistCustomizableDetails(BaseModel):
     commissionsRemaining: PositiveInt
 
 
+class ArtistCustomizableDetails_User(BaseModel):
+    name: str
+    details: str
+    profileUrl: HttpUrl
+    imageUrl: HttpUrl
+
+
 class ArtistSummary(BaseModel):
     name: str
     slug: str
     eventId: str
     imageUrl: str
     seat: PositiveInt
+
 
 class RequestNewArtist(BaseModel):
     name: str

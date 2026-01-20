@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import StrEnum, auto
 
 from sqlalchemy import (
     Boolean,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -18,7 +20,7 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class Base(DeclarativeBase):
+class Base(AsyncAttrs, DeclarativeBase):
     """Base class for all ORM models."""
 
     pass
@@ -257,9 +259,7 @@ class SeatAssignment(Base):
         default=utcnow,  # IMPORTANT: callable default
     )
     ended_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        default=None
+        DateTime(timezone=True), nullable=True, default=None
     )
 
     event: Mapped["Event"] = relationship(back_populates="assignments")
@@ -318,6 +318,12 @@ class UserData(Base):
         passive_deletes=True,
     )
 
+    permission_requests: Mapped[list["PermissionRequest"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class UserArtistData(Base):
     __tablename__ = "saved_artists"
@@ -332,3 +338,33 @@ class UserArtistData(Base):
     imageUrl: Mapped[str] = mapped_column(String(), default="unknown_pfp.png")
     profileUrl: Mapped[str] = mapped_column(String(256), default="")
     details: Mapped[str] = mapped_column(String(2048), default="")
+
+
+class PermissionRequestStatus(StrEnum):
+    PENDING = auto()
+    GRANTED = auto()
+
+
+class PermissionRequest(Base):
+    __tablename__ = "permission_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    user: Mapped["UserData"] = relationship(back_populates="permission_requests")
+    grant_type: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(
+        String(), default=PermissionRequestStatus.PENDING
+    )
+    granted_by: Mapped[str] = mapped_column(String())
+
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    reason: Mapped[str] = mapped_column(String(512), default="")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "grant_type", name="uq_user_grant_type"),
+    )

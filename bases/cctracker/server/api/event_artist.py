@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from valkey.asyncio import Valkey
@@ -99,10 +99,10 @@ async def create_new_artist(
 
     await db.commit()
 
-    log.info(f"Artist ({details.name}) assigned to {details.slug} for {eventId}")
+    log.info(f"Artist ({details.name}) assigned to {details.slug} for {event.slug}")
 
     event_artist_token = EventArtistToken(
-        event_id=eventId, artist_id=details.slug, uuid=uuid4()
+        event_id=event.slug, artist_id=details.slug, uuid=uuid4()
     )
 
     log.debug(f"new artist token: {event_artist_token}")
@@ -215,7 +215,13 @@ async def claim_artist_seat(
             detail=f"Artist {artist_id} not found",
         )
 
-    seat_number = int(cached_data.get("seat", 0))
+    try:
+        seat_number = int(cached_data.get("seat", 0))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid seat data in cache",
+        )
     seat = next((s for s in event.seats if s.seat_number == seat_number), None)
 
     if not seat:
@@ -280,9 +286,8 @@ async def set_artist_locked_for_event(
     return lockStatus
 
 
-@api_router.post("/{eventId}/artist/{artistId}/lock")
+@api_router.get("/{eventId}/artist/{artistId}/lock")
 async def get_artist_locked_status_for_event(
-    _eventId: str,
     artistId: str,
     event: Annotated[models.Event, Depends(require_event_editor)],
     _user_data: Annotated[models.UserData, Depends(CurrentUser)],
@@ -298,14 +303,19 @@ async def get_artist_locked_status_for_event(
             status_code=status.HTTP_404_NOT_FOUND, detail="Artist not in cache"
         )
 
-    return ArtistEventLock(locked=bool(int(cached_data)))
+    try:
+        return ArtistEventLock(locked=bool(int(cached_data)))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid lock status in cache",
+        )
 
 
 @api_router.patch(
     "/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)]
 )
 async def update_artist_details(
-    eventId: str,
     artistId: str,
     details: ArtistCustomizableDetails,
     response: Response,
@@ -340,6 +350,8 @@ async def update_artist_details(
     await db.commit()
 
     log.info(f"Artist {artistId} updated by {user_data.username}")
+
+    return True
 
 
 class AssignSeat(BaseModel):
@@ -392,7 +404,9 @@ async def assign_artist_to_seat(
     dwellPeriod = artist.time_since_last_assignment
     if dwellPeriod is not None and 0 <= dwellPeriod < event.dwellPeriod:
         if not seat_request.force:
-            log.warning(f"Artist {artistId} still in dwell period: {dwellPeriod}s < {event.dwellPeriod}s")
+            log.warning(
+                f"Artist {artistId} still in dwell period: {dwellPeriod}s < {event.dwellPeriod}s"
+            )
             response.status_code = status.HTTP_400_BAD_REQUEST
             return StandardError(
                 code=status.HTTP_400_BAD_REQUEST,
@@ -400,7 +414,7 @@ async def assign_artist_to_seat(
                 details={
                     "dwellPeriod": str(dwellPeriod),
                     "required": str(event.dwellPeriod),
-                    "remaining": str(event.dwellPeriod - dwellPeriod)
+                    "remaining": str(event.dwellPeriod - dwellPeriod),
                 },
             )
         log.info(f"Force override: allowing {artistId} despite dwell period")
@@ -448,6 +462,8 @@ async def assign_artist_to_seat(
         f"Artist {artistId} assigned to seat {seat_request.seat} by {user_data.username}"
     )
 
+    return True
+
 
 @api_router.delete(
     "/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)]
@@ -468,10 +484,8 @@ async def remove_artist_from_seat(
         f"{event.slug}/artist/{artistId}/seat delete called by {user_data.username}"
     )
 
-    artist_stmt = (
-        select(models.Artist)
-        .where((models.Artist.slug == artistId) & (models.Artist.event_id == event.id))
-        .options(selectinload(models.Artist.assignments))
+    artist_stmt = select(models.Artist).where(
+        (models.Artist.slug == artistId) & (models.Artist.event_id == event.id)
     )
     artist = await db.scalar(artist_stmt)
 
@@ -483,9 +497,13 @@ async def remove_artist_from_seat(
             type=StandardErrorTypes.ARTIST_NOT_FOUND,
         )
 
-    active_assignment = next(
-        (a for a in artist.assignments if a.ended_at is None), None
+    assignment_stmt = select(models.SeatAssignment).where(
+        and_(
+            models.SeatAssignment.artist_id == artist.id,
+            models.SeatAssignment.ended_at.is_(None),
+        )
     )
+    active_assignment = await db.scalar(assignment_stmt)
 
     if not active_assignment:
         log.debug(f"Artist {artistId} has no active seat")
@@ -501,6 +519,8 @@ async def remove_artist_from_seat(
     await cache.hset(f"{event.slug}:{artistId}", "status", ArtistSeatStatus.inactive)
 
     log.info(f"Artist {artistId} removed from seat by {user_data.username}")
+
+    return True
 
 
 @api_router.delete(
@@ -520,9 +540,12 @@ async def remove_artist_from_event(
     """
     log.info(f"{event.slug}/artist/{artistId} delete called by {user_data.username}")
 
-    artist_stmt = select(models.Artist).where(
-        (models.Artist.slug == artistId) & (models.Artist.event_id == event.id)
+    artist_stmt = (
+        select(models.Artist)
+        .where((models.Artist.slug == artistId) & (models.Artist.event_id == event.id))
+        .options(selectinload(models.Artist.assignments))
     )
+
     artist = await db.scalar(artist_stmt)
 
     if not artist:
@@ -539,3 +562,5 @@ async def remove_artist_from_event(
     await cache.delete(f"{event.slug}:{artistId}")
 
     log.info(f"Artist {artistId} removed from event by {user_data.username}")
+
+    return True

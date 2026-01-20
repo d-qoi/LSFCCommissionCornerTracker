@@ -16,6 +16,7 @@ from cctracker.models.artists import ArtistCustomizableDetails, RequestNewArtist
 from cctracker.models.errors import StandardError, StandardErrorTypes
 from cctracker.server.auth import EventArtistToken, sign as dc_sign, verify as dc_verify
 from cctracker.server.helpers import CurrentUser, require_event_editor, with_event
+from cctracker.server.seat_expiration_helper import expire_stale_seats
 
 log = get_logger(__name__)
 
@@ -26,7 +27,7 @@ class EventArtistTokenResponse(BaseModel):
     token: str
 
 
-@api_router.post("/{eventId}/artist/new", tags=["event administration"])
+@api_router.post("/{eventId}/artist/new", dependencies=[Depends(expire_stale_seats)])
 async def create_new_artist(
     details: RequestNewArtist,
     response: Response,
@@ -121,7 +122,7 @@ async def create_new_artist(
     return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=event.slug))
 
 
-@api_router.get("/{eventId}/artist/token/{artistId}", tags=["event administration"])
+@api_router.get("/{eventId}/artist/token/{artistId}", dependencies=[Depends(expire_stale_seats)])
 async def recreate_artist_token(
     artistId: str,
     event: Annotated[models.Event, Depends(require_event_editor)],
@@ -161,7 +162,7 @@ async def recreate_artist_token(
     return EventArtistTokenResponse(token=dc_sign(event_artist_token, salt=event.slug))
 
 
-@api_router.get("/{eventId}/artist/claim")
+@api_router.get("/{eventId}/artist/claim", dependencies=[Depends(expire_stale_seats)])
 async def claim_artist_seat(
     token: str,
     response: Response,
@@ -254,7 +255,9 @@ class ArtistEventLock(BaseModel):
     locked: bool
 
 
-@api_router.post("/event/{eventId}/artist/{artistId}/lock", tags=["event administration"])
+@api_router.post(
+    "/{eventId}/artist/{artistId}/lock"
+)
 async def set_artist_locked_for_event(
     artistId: str,
     lockStatus: ArtistEventLock,
@@ -277,7 +280,9 @@ async def set_artist_locked_for_event(
     return lockStatus
 
 
-@api_router.post("/event/{eventId}/artist/{artistId}/lock", tags=["event administration"])
+@api_router.post(
+    "/{eventId}/artist/{artistId}/lock"
+)
 async def get_artist_locked_status_for_event(
     _eventId: str,
     artistId: str,
@@ -298,7 +303,7 @@ async def get_artist_locked_status_for_event(
     return ArtistEventLock(locked=bool(int(cached_data)))
 
 
-@api_router.patch("/{eventId}/artist/{artistId}", tags=["event administration"])
+@api_router.patch("/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)])
 async def update_artist_details(
     eventId: str,
     artistId: str,
@@ -341,7 +346,7 @@ class AssignSeat(BaseModel):
     seat: int
 
 
-@api_router.put("/{eventId}/artist/{artistId}/seat", tags=["event administration"])
+@api_router.put("/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)])
 async def assign_artist_to_seat(
     artistId: str,
     seat_request: AssignSeat,
@@ -416,7 +421,7 @@ async def assign_artist_to_seat(
     )
 
 
-@api_router.delete("/{eventId}/artist/{artistId}/seat", tags=["event administration"])
+@api_router.delete("/{eventId}/artist/{artistId}/seat", dependencies=[Depends(expire_stale_seats)])
 async def remove_artist_from_seat(
     artistId: str,
     response: Response,
@@ -468,7 +473,7 @@ async def remove_artist_from_seat(
     log.info(f"Artist {artistId} removed from seat by {user_data.username}")
 
 
-@api_router.delete("/{eventId}/artist/{artistId}", tags=["event administration"])
+@api_router.delete("/{eventId}/artist/{artistId}", dependencies=[Depends(expire_stale_seats)])
 async def remove_artist_from_event(
     artistId: str,
     response: Response,

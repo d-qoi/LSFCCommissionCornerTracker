@@ -24,6 +24,8 @@ async def with_event(
             selectinload(models.Event.open_times),
             selectinload(models.Event.seats).selectinload(models.Seat.assignments),
             selectinload(models.Event.artists),
+            selectinload(models.Event.owner),
+            selectinload(models.Event.editors),
             selectinload(models.Event.assignments),
         )
     )

@@ -9,7 +9,9 @@ from minio import Minio
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from valkey.asyncio import Valkey
 
+from cctracker.cache import with_vk
 from cctracker.db import with_db, models
 from cctracker.fs.core import ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE, with_bucket
 from cctracker.log import get_logger
@@ -17,11 +19,11 @@ from cctracker.models.artists import (
     Artist,
     ArtistCustomizableDetails,
     ArtistCustomizableDetails_User,
-    ArtistSummary,
 )
 from cctracker.server.auth import verify as dc_verify
 from cctracker.server.config import config
 from cctracker.server.helpers import CurrentUser, OptionalUser
+from cctracker.server.seat_expiration_helper import expire_stale_seats
 
 _log = get_logger(__name__)
 
@@ -29,7 +31,11 @@ api_router = APIRouter(prefix="/artist", tags=["artist operations"])
 
 
 @api_router.get("/{artistId}")
-async def get_artist(artistId: str, db: Annotated[AsyncSession, Depends(with_db)]):
+async def get_artist(
+    artistId: str,
+    db: Annotated[AsyncSession, Depends(with_db)],
+    vk: Annotated[Valkey, Depends(with_vk)],
+):
     """
     Gets the general information about the provided {artistId}, and returns an Artist model.
     """
@@ -50,6 +56,8 @@ async def get_artist(artistId: str, db: Annotated[AsyncSession, Depends(with_db)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"{artistId} not found"
         )
+
+    await expire_stale_seats(artist.event, db, vk)
 
     time_remaining = artist.time_remaining
 

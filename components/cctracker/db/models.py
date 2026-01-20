@@ -62,12 +62,11 @@ class Event(Base):
     )
 
     # Owners/editors
-    owner_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
         index=True,
     )
-    owner: Mapped["UserData | None"] = relationship(
+    owner: Mapped["UserData"] = relationship(
         "UserData",
         back_populates="owned_events",
         foreign_keys=[owner_user_id],

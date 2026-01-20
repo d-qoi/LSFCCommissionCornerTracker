@@ -2,16 +2,21 @@ from datetime import datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Security
+from pydantic import BaseModel
 from sqlalchemy import select, exists, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from valkey.asyncio import Valkey
 
+from cctracker.cache.core import with_vk
 from cctracker.db import with_db, models
 from cctracker.log import get_logger
 from cctracker.models.artists import ArtistSummary
 from cctracker.models.events import EventDetails, EventList, NewEvent, OpenTimes
 from cctracker.models.errors import StandardError, StandardErrorTypes
+from cctracker.server.auth import CurrentPrincipal, Principal
 from cctracker.server.helpers import CurrentUser, with_event, require_event_editor
+from cctracker.server.seat_expiration_helper import expire_stale_seats
 
 
 _log = get_logger(__name__)
@@ -20,7 +25,8 @@ api_router = APIRouter(prefix="/event", tags=["event operations"])
 
 
 @api_router.get("/list")
-async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> EventList:
+async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)],
+                         vk: Annotated[Valkey, Depends(with_vk)]) -> EventList:
     """Get all events"""
 
     _log.info("Fetching all events")
@@ -38,6 +44,7 @@ async def get_all_events(db: Annotated[AsyncSession, Depends(with_db)]) -> Event
 
     today = datetime.now(ZoneInfo("UTC"))
     for result in results:
+        await expire_stale_seats(result, db, vk)
         event = EventDetails(
             name=result.name,
             slug=result.slug,
@@ -165,7 +172,7 @@ async def create_event(
     )
 
 
-@api_router.get("/{eventId}")
+@api_router.get("/{eventId}", dependencies=[Depends(expire_stale_seats)])
 async def get_event(
     eventId: str,
     event: Annotated[models.Event, Depends(with_event)],
@@ -203,7 +210,7 @@ async def get_event(
     return event_details
 
 
-@api_router.get("/{eventId}/artists")
+@api_router.get("/{eventId}/artists", dependencies=[Depends(expire_stale_seats)])
 async def get_event_artists(
     eventId: str,
     all: bool,
@@ -252,7 +259,7 @@ async def get_event_artists(
 
 
 # Update this to check who has permissions to update the event.
-@api_router.post("/{eventId}")
+@api_router.post("/{eventId}", dependencies=[Depends(expire_stale_seats)])
 async def update_event(
     eventId: str,
     updatedEvent: NewEvent,
@@ -349,64 +356,90 @@ async def update_event(
 async def delete_event(
     eventId: str,
     event: Annotated[models.Event, Depends(with_event)],
-    _user: Annotated[
-        models.UserData | None, Security(CurrentUser, scopes=["admin", "event:create"])
+    user: Annotated[
+        models.UserData, Security(CurrentUser, scopes=["admin", "event:create"])
     ],
+    principal: Annotated[Principal, Depends(CurrentPrincipal)],
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Delete an event, Admin only"""
-    _log.info(f"User attempting to delete event '{eventId}'")
+    _log.info(f"User: {user.username} is attempting to delete event '{eventId}'")
+    _log.debug(f"scopes for user: {principal.scopes}")
+    _log.debug(f"Event owner: {event.owner.username}")
 
-    await db.delete(event)
-    await db.commit()
+    if "admin" in principal.scopes or user.username == event.owner.username:
+        await db.delete(event)
+        await db.commit()
+        _log.info(f"Successfully deleted event '{eventId}'")
+        return
 
-    _log.info(f"Successfully deleted event '{eventId}'")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Only event owners or admins can delete an event",
+    )
 
 
-@api_router.post("/{eventId}/editors")
+class Editor(BaseModel):
+    username: str
+
+
+@api_router.post("/{eventId}/editors", dependencies=[Depends(expire_stale_seats)])
 async def add_event_editor(
     eventId: str,
-    username: str,
+    editor: Editor,
     event: Annotated[models.Event, Depends(require_event_editor)],
-    _user: Annotated[models.UserData, Depends(CurrentUser)],
+    user: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Add an editor to the event"""
-    _log.info(f"User {_user.username} adding editor {username} to event {eventId}")
+    _log.info(
+        f"User {user.username} adding editor {editor.username} to event {eventId}"
+    )
 
-    stmt = select(models.UserData).where(models.UserData.username == username)
+    stmt = select(models.UserData).where(models.UserData.username == editor.username)
     target_user = await db.scalar(stmt)
 
     if not target_user:
-        _log.warning(f"User {username} not found when adding as editor to {eventId}")
+        _log.warning(
+            f"User {editor.username} not found when adding as editor to {eventId}"
+        )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"User {username} not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {editor.username} not found",
         )
 
     if target_user in event.editors:
-        _log.warning(f"{username} is already an editor of {eventId}")
+        _log.warning(f"{editor.username} is already an editor of {eventId}")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{username} is already an editor",
+            detail=f"{editor.username} is already an editor",
         )
 
     event.editors.append(target_user)
     await db.commit()
 
-    _log.info(f"Added {username} as editor to {eventId}")
-    return {"status": "added", "username": username}
+    _log.info(f"Added {editor.username} as editor to {eventId}")
 
 
-@api_router.delete("/{eventId}/editors/{username}")
+@api_router.delete(
+    "/{eventId}/editors/{username}", dependencies=[Depends(expire_stale_seats)]
+)
 async def remove_event_editor(
     eventId: str,
-    username: str,
+    editor: Editor,
     event: Annotated[models.Event, Depends(require_event_editor)],
-    _user: Annotated[models.UserData, Depends(CurrentUser)],
+    user: Annotated[models.UserData, Depends(CurrentUser)],
     db: Annotated[AsyncSession, Depends(with_db)],
 ):
     """Remove an editor from the event"""
-    _log.info(f"User {_user.username} removing editor {username} from event {eventId}")
+    username = editor.username
+    _log.info(f"User {user.username} removing editor {username} from event {eventId}")
+
+    if event.owner.username is not user.username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Only the event owner can delete an event",
+        )
 
     stmt = select(models.UserData).where(models.UserData.username == username)
     target_user = await db.scalar(stmt)
@@ -429,20 +462,18 @@ async def remove_event_editor(
     await db.commit()
 
     _log.info(f"Removed {username} as editor from {eventId}")
-    return {"status": "removed", "username": username}
 
 
-@api_router.get("/{eventId}/editors")
+@api_router.get("/{eventId}/editors", dependencies=[Depends(expire_stale_seats)])
 async def list_event_editors(
     eventId: str,
     event: Annotated[models.Event, Depends(with_event)],
-    db: Annotated[AsyncSession, Depends(with_db)],
-) -> list[str]:
+) -> list[Editor]:
     """List all editors for the event"""
     _log.debug(f"Fetching editors for event {eventId}")
 
     editors = await event.awaitable_attrs.editors
-    editor_list = [editor.username for editor in editors]
+    editor_list = [Editor(username=editor.username) for editor in editors]
 
     _log.info(f"Returning {len(editor_list)} editors for event {eventId}")
     return editor_list
